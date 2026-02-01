@@ -21,10 +21,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-$donatur_list = $pdo->query("SELECT d.*, 
-    (SELECT SUM(jumlah) FROM csr_donations WHERE donatur_id=d.id) as total_donasi,
-    (SELECT COUNT(*) FROM csr_donations WHERE donatur_id=d.id) as jumlah_donasi
-    FROM donatur d ORDER BY d.nama")->fetchAll();
+try {
+    $donatur_list = $pdo->query("SELECT d.*, 
+        (SELECT SUM(jumlah) FROM csr_donations WHERE donatur_id=d.id) as total_donasi,
+        (SELECT COUNT(*) FROM csr_donations WHERE donatur_id=d.id) as jumlah_donasi
+        FROM donatur d ORDER BY d.nama")->fetchAll();
+} catch(PDOException $e) {
+    $donatur_list = [];
+    $error_msg = "Error: " . $e->getMessage();
+}
 
 $edit_id = $_GET['edit'] ?? null;
 $edit_donatur = null;
@@ -91,6 +96,13 @@ table tr:hover { background:#f5f5f5 }
     <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
     <?php endif; ?>
     
+    <?php if(isset($error_msg)): ?>
+    <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
+        <strong>⚠️ Error Database:</strong> <?= htmlspecialchars($error_msg) ?>
+        <br><small>Pastikan tabel 'donatur' sudah dibuat. Jalankan file database_schema.sql terlebih dahulu.</small>
+    </div>
+    <?php endif; ?>
+    
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Donatur</h2>
@@ -122,6 +134,17 @@ table tr:hover { background:#f5f5f5 }
                 </tr>
             </thead>
             <tbody>
+                <?php if(empty($donatur_list)): ?>
+                <tr>
+                    <td colspan="8" style="text-align:center; padding:40px; color:#999">
+                        <div style="font-size:48px; margin-bottom:10px">📭</div>
+                        <div>Belum ada data donatur</div>
+                        <div style="margin-top:10px">
+                            <button class="btn" onclick="document.getElementById('modalDonatur').style.display='block'">+ Tambah Donatur Pertama</button>
+                        </div>
+                    </td>
+                </tr>
+                <?php else: ?>
                 <?php foreach($donatur_list as $d): ?>
                 <tr>
                     <td>
@@ -151,6 +174,7 @@ table tr:hover { background:#f5f5f5 }
                     </td>
                 </tr>
                 <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>

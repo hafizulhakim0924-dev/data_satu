@@ -21,13 +21,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-$users = $pdo->query("SELECT id, nama_lengkap FROM users WHERE role IN ('admin','manager') ORDER BY nama_lengkap")->fetchAll();
-$program_list = $pdo->query("SELECT p.*, 
-    u.nama_lengkap as pic_name,
-    (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi
-    FROM program_csr p 
-    LEFT JOIN users u ON p.pic=u.id 
-    ORDER BY p.tanggal_mulai DESC")->fetchAll();
+try {
+    $users = $pdo->query("SELECT id, nama_lengkap FROM users WHERE role IN ('admin','manager') ORDER BY nama_lengkap")->fetchAll();
+} catch(PDOException $e) {
+    $users = [];
+}
+
+try {
+    $program_list = $pdo->query("SELECT p.*, 
+        u.nama_lengkap as pic_name,
+        (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi
+        FROM program_csr p 
+        LEFT JOIN users u ON p.pic=u.id 
+        ORDER BY p.tanggal_mulai DESC")->fetchAll();
+} catch(PDOException $e) {
+    $program_list = [];
+    $error_msg = "Error: " . $e->getMessage();
+}
 
 $edit_id = $_GET['edit'] ?? null;
 $edit_program = null;
@@ -93,6 +103,13 @@ table tr:hover { background:#f5f5f5 }
     <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
     <?php endif; ?>
     
+    <?php if(isset($error_msg)): ?>
+    <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
+        <strong>⚠️ Error Database:</strong> <?= htmlspecialchars($error_msg) ?>
+        <br><small>Pastikan tabel 'program_csr' sudah dibuat. Jalankan file database_schema.sql terlebih dahulu.</small>
+    </div>
+    <?php endif; ?>
+    
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Program</h2>
@@ -114,6 +131,17 @@ table tr:hover { background:#f5f5f5 }
                 </tr>
             </thead>
             <tbody>
+                <?php if(empty($program_list)): ?>
+                <tr>
+                    <td colspan="9" style="text-align:center; padding:40px; color:#999">
+                        <div style="font-size:48px; margin-bottom:10px">📋</div>
+                        <div>Belum ada data program</div>
+                        <div style="margin-top:10px">
+                            <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program Pertama</button>
+                        </div>
+                    </td>
+                </tr>
+                <?php else: ?>
                 <?php foreach($program_list as $p): ?>
                 <tr>
                     <td><strong><?= htmlspecialchars($p['nama_program']) ?></strong></td>
@@ -141,6 +169,7 @@ table tr:hover { background:#f5f5f5 }
                     </td>
                 </tr>
                 <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>

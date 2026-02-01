@@ -21,19 +21,36 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-$donatur_list = $pdo->query("SELECT id, nama FROM donatur WHERE status='active' ORDER BY nama")->fetchAll();
+try {
+    $donatur_list = $pdo->query("SELECT id, nama FROM donatur WHERE status='active' ORDER BY nama")->fetchAll();
+} catch(PDOException $e) {
+    $donatur_list = [];
+    $error_msg = "Error: " . $e->getMessage();
+}
+
 $donatur_id = $_GET['donatur_id'] ?? null;
 
-$where = $donatur_id ? "WHERE d.donatur_id = $donatur_id" : "";
-$donasi_list = $pdo->query("SELECT d.*, 
-    (SELECT nama FROM donatur WHERE id=d.donatur_id) as nama_donatur_db
-    FROM csr_donations d $where ORDER BY d.tanggal DESC LIMIT 200")->fetchAll();
+try {
+    $where = $donatur_id ? "WHERE d.donatur_id = $donatur_id" : "";
+    $donasi_list = $pdo->query("SELECT d.*, 
+        (SELECT nama FROM donatur WHERE id=d.donatur_id) as nama_donatur_db
+        FROM csr_donations d $where ORDER BY d.tanggal DESC LIMIT 200")->fetchAll();
+} catch(PDOException $e) {
+    $donasi_list = [];
+}
 
 // Summary
-$total_donasi = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE status='verified'")->fetchColumn();
-$donasi_hari_ini = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE DATE(tanggal)=CURDATE() AND status='verified'")->fetchColumn();
-$donasi_bulan_ini = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE MONTH(tanggal)=MONTH(CURDATE()) AND YEAR(tanggal)=YEAR(CURDATE()) AND status='verified'")->fetchColumn();
-$pending = $pdo->query("SELECT COUNT(*) FROM csr_donations WHERE status='pending'")->fetchColumn();
+try {
+    $total_donasi = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE status='verified'")->fetchColumn() ?: 0;
+    $donasi_hari_ini = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE DATE(tanggal)=CURDATE() AND status='verified'")->fetchColumn() ?: 0;
+    $donasi_bulan_ini = $pdo->query("SELECT SUM(jumlah) FROM csr_donations WHERE MONTH(tanggal)=MONTH(CURDATE()) AND YEAR(tanggal)=YEAR(CURDATE()) AND status='verified'")->fetchColumn() ?: 0;
+    $pending = $pdo->query("SELECT COUNT(*) FROM csr_donations WHERE status='pending'")->fetchColumn() ?: 0;
+} catch(PDOException $e) {
+    $total_donasi = 0;
+    $donasi_hari_ini = 0;
+    $donasi_bulan_ini = 0;
+    $pending = 0;
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -92,6 +109,13 @@ table tr:hover { background:#f5f5f5 }
     <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
     <?php endif; ?>
     
+    <?php if(isset($error_msg)): ?>
+    <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
+        <strong>⚠️ Error Database:</strong> <?= htmlspecialchars($error_msg) ?>
+        <br><small>Pastikan tabel 'csr_donations' sudah dibuat. Jalankan file database_schema.sql terlebih dahulu.</small>
+    </div>
+    <?php endif; ?>
+    
     <div class="grid">
         <div class="card">
             <h3>Total Donasi</h3>
@@ -131,6 +155,17 @@ table tr:hover { background:#f5f5f5 }
                 </tr>
             </thead>
             <tbody>
+                <?php if(empty($donasi_list)): ?>
+                <tr>
+                    <td colspan="8" style="text-align:center; padding:40px; color:#999">
+                        <div style="font-size:48px; margin-bottom:10px">💰</div>
+                        <div>Belum ada data donasi</div>
+                        <div style="margin-top:10px">
+                            <button class="btn" onclick="document.getElementById('modalDonasi').style.display='block'">+ Tambah Donasi Pertama</button>
+                        </div>
+                    </td>
+                </tr>
+                <?php else: ?>
                 <?php foreach($donasi_list as $d): ?>
                 <tr>
                     <td><?= date('d/m/Y', strtotime($d['tanggal'])) ?></td>
@@ -160,6 +195,7 @@ table tr:hover { background:#f5f5f5 }
                     </td>
                 </tr>
                 <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>
