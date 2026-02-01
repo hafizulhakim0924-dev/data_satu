@@ -28,12 +28,27 @@ try {
 }
 
 try {
-    $program_list = $pdo->query("SELECT p.*, 
-        u.nama_lengkap as pic_name,
-        (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi
-        FROM program_csr p 
-        LEFT JOIN users u ON p.pic=u.id 
-        ORDER BY p.tanggal_mulai DESC")->fetchAll();
+    // Cek apakah kolom 'program' ada di tabel csr_donations
+    $check_column = $pdo->query("SHOW COLUMNS FROM csr_donations LIKE 'program'")->fetch();
+    
+    if ($check_column) {
+        // Kolom ada, gunakan query normal
+        $program_list = $pdo->query("SELECT p.*, 
+            u.nama_lengkap as pic_name,
+            (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi
+            FROM program_csr p 
+            LEFT JOIN users u ON p.pic=u.id 
+            ORDER BY p.tanggal_mulai DESC")->fetchAll();
+    } else {
+        // Kolom belum ada, gunakan query tanpa subquery program
+        $program_list = $pdo->query("SELECT p.*, 
+            u.nama_lengkap as pic_name,
+            0 as total_donasi
+            FROM program_csr p 
+            LEFT JOIN users u ON p.pic=u.id 
+            ORDER BY p.tanggal_mulai DESC")->fetchAll();
+        $error_msg = "Kolom 'program' belum ada di tabel csr_donations. Jalankan script fix_csr_donations.sql untuk menambahkan kolom.";
+    }
 } catch(PDOException $e) {
     $program_list = [];
     $error_msg = "Error: " . $e->getMessage();
@@ -107,6 +122,9 @@ table tr:hover { background:#f5f5f5 }
     <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
         <strong>⚠️ Error Database:</strong> <?= htmlspecialchars($error_msg) ?>
         <br><small>Pastikan tabel 'program_csr' sudah dibuat. Jalankan file database_schema.sql terlebih dahulu.</small>
+        <?php if(strpos($error_msg, 'program') !== false): ?>
+        <br><br><strong>Solusi:</strong> Jalankan file <code>fix_csr_donations_safe.sql</code> untuk menambahkan kolom 'program' ke tabel csr_donations.
+        <?php endif; ?>
     </div>
     <?php endif; ?>
     

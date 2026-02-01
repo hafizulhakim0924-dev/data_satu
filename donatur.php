@@ -6,16 +6,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action == 'add_donatur') {
-        $stmt = $pdo->prepare("INSERT INTO donatur (nama, email, no_hp, alamat, tipe, npwp, nama_perusahaan, pic, kategori, status, catatan) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-        $stmt->execute([$_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['tipe'], $_POST['npwp'], $_POST['nama_perusahaan'], $_POST['pic'], $_POST['kategori'], 'active', $_POST['catatan']]);
+        $stmt = $pdo->prepare("INSERT INTO donatur (nama, email, no_hp, alamat, tipe, npwp, nama_perusahaan, pic, kategori, klasifikasi_id, status, catatan) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([$_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['tipe'], $_POST['npwp'], $_POST['nama_perusahaan'], $_POST['pic'], $_POST['kategori'], $_POST['klasifikasi_id'] ?: null, 'active', $_POST['catatan']]);
         header("Location: donatur.php?msg=Donatur berhasil ditambahkan");
         exit;
     }
     
     if ($action == 'update_donatur') {
         $id = $_POST['id'];
-        $stmt = $pdo->prepare("UPDATE donatur SET nama=?, email=?, no_hp=?, alamat=?, tipe=?, npwp=?, nama_perusahaan=?, pic=?, kategori=?, status=?, catatan=? WHERE id=?");
-        $stmt->execute([$_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['tipe'], $_POST['npwp'], $_POST['nama_perusahaan'], $_POST['pic'], $_POST['kategori'], $_POST['status'], $_POST['catatan'], $id]);
+        $stmt = $pdo->prepare("UPDATE donatur SET nama=?, email=?, no_hp=?, alamat=?, tipe=?, npwp=?, nama_perusahaan=?, pic=?, kategori=?, klasifikasi_id=?, status=?, catatan=? WHERE id=?");
+        $stmt->execute([$_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['tipe'], $_POST['npwp'], $_POST['nama_perusahaan'], $_POST['pic'], $_POST['kategori'], $_POST['klasifikasi_id'] ?: null, $_POST['status'], $_POST['catatan'], $id]);
         header("Location: donatur.php?msg=Donatur berhasil diupdate");
         exit;
     }
@@ -23,12 +23,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 try {
     $donatur_list = $pdo->query("SELECT d.*, 
+        k.nama_klasifikasi, k.warna, k.indikator, k.kode as kode_klasifikasi,
         (SELECT SUM(jumlah) FROM csr_donations WHERE donatur_id=d.id) as total_donasi,
         (SELECT COUNT(*) FROM csr_donations WHERE donatur_id=d.id) as jumlah_donasi
-        FROM donatur d ORDER BY d.nama")->fetchAll();
+        FROM donatur d 
+        LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
+        ORDER BY d.nama")->fetchAll();
 } catch(PDOException $e) {
     $donatur_list = [];
     $error_msg = "Error: " . $e->getMessage();
+}
+
+// Get klasifikasi list for dropdown
+try {
+    $klasifikasi_list = $pdo->query("SELECT * FROM klasifikasi_donatur WHERE status='active' ORDER BY prioritas DESC, nama_klasifikasi")->fetchAll();
+} catch(PDOException $e) {
+    $klasifikasi_list = [];
 }
 
 $edit_id = $_GET['edit'] ?? null;
@@ -124,6 +134,7 @@ table tr:hover { background:#f5f5f5 }
             <thead>
                 <tr>
                     <th>Nama</th>
+                    <th>Klasifikasi</th>
                     <th>Tipe</th>
                     <th>Kontak</th>
                     <th>Kategori</th>
@@ -136,7 +147,7 @@ table tr:hover { background:#f5f5f5 }
             <tbody>
                 <?php if(empty($donatur_list)): ?>
                 <tr>
-                    <td colspan="8" style="text-align:center; padding:40px; color:#999">
+                    <td colspan="9" style="text-align:center; padding:40px; color:#999">
                         <div style="font-size:48px; margin-bottom:10px">📭</div>
                         <div>Belum ada data donatur</div>
                         <div style="margin-top:10px">
@@ -146,11 +157,20 @@ table tr:hover { background:#f5f5f5 }
                 </tr>
                 <?php else: ?>
                 <?php foreach($donatur_list as $d): ?>
-                <tr>
+                <tr style="<?= $d['warna'] ? 'border-left: 4px solid ' . htmlspecialchars($d['warna']) : '' ?>">
                     <td>
                         <strong><?= htmlspecialchars($d['nama']) ?></strong>
                         <?php if($d['nama_perusahaan']): ?>
                         <br><small style="color:#666"><?= htmlspecialchars($d['nama_perusahaan']) ?></small>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if($d['nama_klasifikasi']): ?>
+                        <span class="badge" style="background:<?= htmlspecialchars($d['warna'] ?? '#95a5a6') ?>; color:#fff; padding:5px 10px; border-radius:4px">
+                            <?= htmlspecialchars($d['indikator'] ?? '') ?> <?= htmlspecialchars($d['nama_klasifikasi']) ?>
+                        </span>
+                        <?php else: ?>
+                        <span style="color:#999; font-size:12px">-</span>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -224,6 +244,23 @@ table tr:hover { background:#f5f5f5 }
                             <option value="sedekah" <?= ($edit_donatur['kategori'] ?? '') == 'sedekah' ? 'selected' : '' ?>>Sedekah</option>
                         </select>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label>Klasifikasi Donatur</label>
+                    <select name="klasifikasi_id">
+                        <option value="">Pilih Klasifikasi (Opsional)</option>
+                        <?php foreach($klasifikasi_list as $k): ?>
+                        <option value="<?= $k['id'] ?>" 
+                            <?= ($edit_donatur['klasifikasi_id'] ?? '') == $k['id'] ? 'selected' : '' ?>
+                            style="background:<?= htmlspecialchars($k['warna']) ?>20">
+                            <?= htmlspecialchars($k['indikator'] ?? '') ?> <?= htmlspecialchars($k['nama_klasifikasi']) ?>
+                            <?php if($k['minimal_donasi']): ?>
+                            (Min: <?= formatRupiah($k['minimal_donasi']) ?>)
+                            <?php endif; ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="color:#666">Atau <a href="klasifikasi_donatur.php" target="_blank">kelola klasifikasi</a></small>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
