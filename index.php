@@ -1,159 +1,122 @@
 <?php
-/* ==============================
-   KONFIGURASI DATABASE
-================================ */
+/* =========================
+   DATABASE CONFIG
+========================= */
 $host = "localhost";
 $db   = "rank3598_bankdata";
 $user = "rank3598_bankdata";
 $pass = "Hakim123!";
 
-/* ==============================
-   KONEKSI PDO
-================================ */
-try {
-    $pdo = new PDO(
-        "mysql:host=$host;dbname=$db;charset=utf8",
-        $user,
-        $pass,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
-} catch (PDOException $e) {
-    die("Koneksi database gagal: " . $e->getMessage());
-}
+$pdo = new PDO(
+    "mysql:host=$host;dbname=$db;charset=utf8",
+    $user,
+    $pass,
+    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+);
 
-/* ==============================
-   BUAT TABEL JIKA BELUM ADA
-================================ */
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nama VARCHAR(100),
-        username VARCHAR(50),
-        password VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-");
+/* =========================
+   TOTAL DONASI
+========================= */
+$total = $pdo->query("
+    SELECT SUM(jumlah) FROM csr_donations
+")->fetchColumn();
 
-/* ==============================
-   TAMBAH DATA
-================================ */
-if (isset($_POST['simpan'])) {
-    $stmt = $pdo->prepare(
-        "INSERT INTO users (nama, username, password) VALUES (?, ?, ?)"
-    );
-    $stmt->execute([
-        $_POST['nama'],
-        $_POST['username'],
-        password_hash($_POST['password'], PASSWORD_DEFAULT)
-    ]);
-    header("Location: management.php");
-    exit;
-}
+/* =========================
+   DONASI HARIAN
+========================= */
+$hari_ini = $pdo->query("
+    SELECT SUM(jumlah) FROM csr_donations
+    WHERE DATE(tanggal)=CURDATE()
+")->fetchColumn();
 
-/* ==============================
-   HAPUS DATA
-================================ */
-if (isset($_GET['hapus'])) {
-    $stmt = $pdo->prepare("DELETE FROM users WHERE id=?");
-    $stmt->execute([$_GET['hapus']]);
-    header("Location: management.php");
-    exit;
-}
+$kemarin = $pdo->query("
+    SELECT SUM(jumlah) FROM csr_donations
+    WHERE DATE(tanggal)=CURDATE()-INTERVAL 1 DAY
+")->fetchColumn();
 
-/* ==============================
-   EDIT DATA
-================================ */
-if (isset($_POST['update'])) {
-    $sql = "UPDATE users SET nama=?, username=?";
-    $params = [$_POST['nama'], $_POST['username']];
+/* =========================
+   DONASI BULANAN
+========================= */
+$bulan_ini = $pdo->query("
+    SELECT SUM(jumlah) FROM csr_donations
+    WHERE MONTH(tanggal)=MONTH(CURDATE())
+    AND YEAR(tanggal)=YEAR(CURDATE())
+")->fetchColumn();
 
-    if (!empty($_POST['password'])) {
-        $sql .= ", password=?";
-        $params[] = password_hash($_POST['password'], PASSWORD_DEFAULT);
-    }
+$bulan_lalu = $pdo->query("
+    SELECT SUM(jumlah) FROM csr_donations
+    WHERE MONTH(tanggal)=MONTH(CURDATE()-INTERVAL 1 MONTH)
+    AND YEAR(tanggal)=YEAR(CURDATE()-INTERVAL 1 MONTH)
+")->fetchColumn();
 
-    $sql .= " WHERE id=?";
-    $params[] = $_POST['id'];
-
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-
-    header("Location: management.php");
-    exit;
-}
-
-/* ==============================
-   AMBIL DATA
-================================ */
-$data = $pdo->query("SELECT * FROM users ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
-
-$editData = null;
-if (isset($_GET['edit'])) {
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id=?");
-    $stmt->execute([$_GET['edit']]);
-    $editData = $stmt->fetch(PDO::FETCH_ASSOC);
-}
+/* =========================
+   TREND HARIAN (7 HARI)
+========================= */
+$trend = $pdo->query("
+    SELECT DATE(tanggal) tgl, SUM(jumlah) total
+    FROM csr_donations
+    WHERE tanggal >= CURDATE()-INTERVAL 6 DAY
+    GROUP BY DATE(tanggal)
+    ORDER BY tgl
+")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Management Data</title>
-    <style>
-        body { font-family: Arial; padding: 30px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
-        th { background: #f2f2f2; }
-        input, button { padding: 8px; width: 100%; }
-        button { cursor: pointer; }
-    </style>
+<title>CSR ZISWAF Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family: Arial; background:#f4f6f8; padding:20px }
+.card { background:#fff; padding:20px; border-radius:8px; margin-bottom:15px }
+.grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap:15px }
+h1 { margin-bottom:20px }
+.big { font-size:22px; font-weight:bold }
+</style>
 </head>
 <body>
 
-<h2><?= $editData ? "Edit User" : "Tambah User" ?></h2>
+<h1>📊 Dashboard CSR ZISWAF</h1>
 
-<form method="post">
-    <input type="hidden" name="id" value="<?= $editData['id'] ?? '' ?>">
+<div class="grid">
+    <div class="card">
+        Total Donasi
+        <div class="big">Rp <?= number_format($total ?? 0,0,',','.') ?></div>
+    </div>
+    <div class="card">
+        Hari Ini
+        <div class="big">Rp <?= number_format($hari_ini ?? 0,0,',','.') ?></div>
+        Kemarin: Rp <?= number_format($kemarin ?? 0,0,',','.') ?>
+    </div>
+    <div class="card">
+        Bulan Ini
+        <div class="big">Rp <?= number_format($bulan_ini ?? 0,0,',','.') ?></div>
+        Bulan Lalu: Rp <?= number_format($bulan_lalu ?? 0,0,',','.') ?>
+    </div>
+</div>
 
-    Nama<br>
-    <input type="text" name="nama" required value="<?= $editData['nama'] ?? '' ?>"><br><br>
+<div class="card">
+    <h3>📈 Trend Donasi 7 Hari Terakhir</h3>
+    <canvas id="trendChart"></canvas>
+</div>
 
-    Username<br>
-    <input type="text" name="username" required value="<?= $editData['username'] ?? '' ?>"><br><br>
+<script>
+const labels = <?= json_encode(array_column($trend,'tgl')) ?>;
+const data = <?= json_encode(array_column($trend,'total')) ?>;
 
-    Password <?= $editData ? "(kosongkan jika tidak diubah)" : "" ?><br>
-    <input type="password" name="password"><br><br>
-
-    <button type="submit" name="<?= $editData ? 'update' : 'simpan' ?>">
-        <?= $editData ? 'Update' : 'Simpan' ?>
-    </button>
-</form>
-
-<hr>
-
-<h2>Data Users</h2>
-<table>
-<tr>
-    <th>No</th>
-    <th>Nama</th>
-    <th>Username</th>
-    <th>Tanggal</th>
-    <th>Aksi</th>
-</tr>
-
-<?php foreach ($data as $i => $row): ?>
-<tr>
-    <td><?= $i+1 ?></td>
-    <td><?= htmlspecialchars($row['nama']) ?></td>
-    <td><?= htmlspecialchars($row['username']) ?></td>
-    <td><?= $row['created_at'] ?></td>
-    <td>
-        <a href="?edit=<?= $row['id'] ?>">Edit</a> |
-        <a href="?hapus=<?= $row['id'] ?>" onclick="return confirm('Hapus data ini?')">Hapus</a>
-    </td>
-</tr>
-<?php endforeach; ?>
-</table>
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: 'Donasi',
+            data: data,
+            borderWidth: 2,
+            fill: false
+        }]
+    }
+});
+</script>
 
 </body>
 </html>
