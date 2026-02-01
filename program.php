@@ -1,0 +1,238 @@
+<?php
+require_once 'config.php';
+
+// Handle Actions
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $action = $_POST['action'] ?? '';
+    
+    if ($action == 'add_program') {
+        $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, tanggal_mulai, tanggal_selesai, budget, status, pic) VALUES (?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], 'planning', $_POST['pic'] ?: null]);
+        header("Location: program.php?msg=Program berhasil ditambahkan");
+        exit;
+    }
+    
+    if ($action == 'update_program') {
+        $id = $_POST['id'];
+        $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=? WHERE id=?");
+        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], $_POST['status'], $_POST['pic'] ?: null, $id]);
+        header("Location: program.php?msg=Program berhasil diupdate");
+        exit;
+    }
+}
+
+$users = $pdo->query("SELECT id, nama_lengkap FROM users WHERE role IN ('admin','manager') ORDER BY nama_lengkap")->fetchAll();
+$program_list = $pdo->query("SELECT p.*, 
+    u.nama_lengkap as pic_name,
+    (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi
+    FROM program_csr p 
+    LEFT JOIN users u ON p.pic=u.id 
+    ORDER BY p.tanggal_mulai DESC")->fetchAll();
+
+$edit_id = $_GET['edit'] ?? null;
+$edit_program = null;
+if ($edit_id) {
+    $edit_program = $pdo->prepare("SELECT * FROM program_csr WHERE id=?");
+    $edit_program->execute([$edit_id]);
+    $edit_program = $edit_program->fetch();
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Program CSR - Rangkiang Peduli Negeri</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f4f6f8 }
+.navbar { background:#2c3e50; color:#fff; padding:15px 20px; box-shadow:0 2px 5px rgba(0,0,0,0.1) }
+.navbar h1 { display:inline-block; margin-right:30px; font-size:20px }
+.nav-menu { display:inline-block; vertical-align:middle }
+.nav-menu a { color:#fff; text-decoration:none; padding:10px 15px; margin:0 5px; border-radius:5px; display:inline-block; transition:background 0.3s }
+.nav-menu a:hover, .nav-menu a.active { background:#34495e }
+.container { max-width:1400px; margin:20px auto; padding:0 20px }
+.card { background:#fff; padding:20px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.1) }
+.grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:15px }
+.btn { display:inline-block; padding:10px 20px; background:#3498db; color:#fff; text-decoration:none; border-radius:5px; border:none; cursor:pointer; margin:5px }
+.btn:hover { background:#2980b9 }
+.btn-success { background:#27ae60 }
+.btn-danger { background:#e74c3c }
+.btn-warning { background:#f39c12 }
+.btn-sm { padding:5px 10px; font-size:12px }
+table { width:100%; border-collapse:collapse; margin-top:15px }
+table th, table td { padding:12px; text-align:left; border-bottom:1px solid #ddd }
+table th { background:#34495e; color:#fff; font-weight:600 }
+table tr:hover { background:#f5f5f5 }
+.form-group { margin-bottom:15px }
+.form-group label { display:block; margin-bottom:5px; font-weight:600; color:#2c3e50 }
+.form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:5px; font-size:14px }
+.form-group textarea { min-height:100px; resize:vertical }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px }
+.modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5) }
+.modal-content { background:#fff; margin:5% auto; padding:20px; border-radius:8px; width:90%; max-width:700px; max-height:90vh; overflow-y:auto }
+.close { float:right; font-size:28px; font-weight:bold; cursor:pointer }
+.alert { padding:15px; margin-bottom:20px; border-radius:5px }
+.alert-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb }
+.badge { padding:5px 10px; border-radius:3px; font-size:12px; font-weight:600; display:inline-block }
+.badge-planning { background:#95a5a6; color:#fff }
+.badge-ongoing { background:#3498db; color:#fff }
+.badge-completed { background:#27ae60; color:#fff }
+.badge-cancelled { background:#e74c3c; color:#fff }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+    <h1>🏛️ Rangkiang Peduli Negeri</h1>
+    <?= getNavMenu() ?>
+</div>
+
+<div class="container">
+    <h1 style="margin:20px 0">📋 Manajemen Program CSR</h1>
+    
+    <?php if(isset($_GET['msg'])): ?>
+    <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
+    <?php endif; ?>
+    
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+            <h2>Data Program</h2>
+            <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program</button>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Nama Program</th>
+                    <th>Kategori</th>
+                    <th>Lokasi</th>
+                    <th>Periode</th>
+                    <th>Budget</th>
+                    <th>Total Donasi</th>
+                    <th>PIC</th>
+                    <th>Status</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach($program_list as $p): ?>
+                <tr>
+                    <td><strong><?= htmlspecialchars($p['nama_program']) ?></strong></td>
+                    <td><?= htmlspecialchars($p['kategori']) ?></td>
+                    <td><?= htmlspecialchars($p['lokasi'] ?? '-') ?></td>
+                    <td>
+                        <?php if($p['tanggal_mulai']): ?>
+                        <?= date('d/m/Y', strtotime($p['tanggal_mulai'])) ?>
+                        <?php if($p['tanggal_selesai']): ?>
+                        - <?= date('d/m/Y', strtotime($p['tanggal_selesai'])) ?>
+                        <?php endif; ?>
+                        <?php else: ?>
+                        -
+                        <?php endif; ?>
+                    </td>
+                    <td><?= formatRupiah($p['budget']) ?></td>
+                    <td><?= formatRupiah($p['total_donasi'] ?? 0) ?></td>
+                    <td><?= htmlspecialchars($p['pic_name'] ?? '-') ?></td>
+                    <td>
+                        <span class="badge badge-<?= $p['status'] ?>"><?= ucfirst($p['status']) ?></span>
+                    </td>
+                    <td>
+                        <a href="?edit=<?= $p['id'] ?>" class="btn btn-warning btn-sm">Edit</a>
+                        <a href="?view=<?= $p['id'] ?>" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Modal Tambah/Edit Program -->
+    <div id="modalProgram" class="modal" style="<?= $edit_program ? 'display:block' : '' ?>">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('modalProgram').style.display='none'; window.location.href='program.php'">&times;</span>
+            <h2><?= $edit_program ? 'Edit Program' : 'Tambah Program' ?></h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="<?= $edit_program ? 'update_program' : 'add_program' ?>">
+                <?php if($edit_program): ?>
+                <input type="hidden" name="id" value="<?= $edit_program['id'] ?>">
+                <?php endif; ?>
+                <div class="form-group">
+                    <label>Nama Program *</label>
+                    <input type="text" name="nama_program" value="<?= $edit_program['nama_program'] ?? '' ?>" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Kategori *</label>
+                        <select name="kategori" required>
+                            <option value="pendidikan" <?= ($edit_program['kategori'] ?? '') == 'pendidikan' ? 'selected' : '' ?>>Pendidikan</option>
+                            <option value="kesehatan" <?= ($edit_program['kategori'] ?? '') == 'kesehatan' ? 'selected' : '' ?>>Kesehatan</option>
+                            <option value="sosial" <?= ($edit_program['kategori'] ?? '') == 'sosial' ? 'selected' : '' ?>>Sosial</option>
+                            <option value="lingkungan" <?= ($edit_program['kategori'] ?? '') == 'lingkungan' ? 'selected' : '' ?>>Lingkungan</option>
+                            <option value="ekonomi" <?= ($edit_program['kategori'] ?? '') == 'ekonomi' ? 'selected' : '' ?>>Ekonomi</option>
+                            <option value="bencana" <?= ($edit_program['kategori'] ?? '') == 'bencana' ? 'selected' : '' ?>>Bencana</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>PIC</label>
+                        <select name="pic">
+                            <option value="">Pilih PIC</option>
+                            <?php foreach($users as $u): ?>
+                            <option value="<?= $u['id'] ?>" <?= ($edit_program['pic'] ?? '') == $u['id'] ? 'selected' : '' ?>><?= htmlspecialchars($u['nama_lengkap']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Lokasi</label>
+                    <input type="text" name="lokasi" value="<?= $edit_program['lokasi'] ?? '' ?>" placeholder="Alamat/lokasi program">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Tanggal Mulai</label>
+                        <input type="date" name="tanggal_mulai" value="<?= $edit_program['tanggal_mulai'] ?? '' ?>">
+                    </div>
+                    <div class="form-group">
+                        <label>Tanggal Selesai</label>
+                        <input type="date" name="tanggal_selesai" value="<?= $edit_program['tanggal_selesai'] ?? '' ?>">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Budget</label>
+                        <input type="number" name="budget" step="0.01" value="<?= $edit_program['budget'] ?? '' ?>" placeholder="Anggaran program">
+                    </div>
+                    <?php if($edit_program): ?>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="status">
+                            <option value="planning" <?= $edit_program['status'] == 'planning' ? 'selected' : '' ?>>Planning</option>
+                            <option value="ongoing" <?= $edit_program['status'] == 'ongoing' ? 'selected' : '' ?>>Ongoing</option>
+                            <option value="completed" <?= $edit_program['status'] == 'completed' ? 'selected' : '' ?>>Completed</option>
+                            <option value="cancelled" <?= $edit_program['status'] == 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <div class="form-group">
+                    <label>Deskripsi</label>
+                    <textarea name="deskripsi" rows="5"><?= $edit_program['deskripsi'] ?? '' ?></textarea>
+                </div>
+                <button type="submit" class="btn btn-success">Simpan</button>
+                <button type="button" class="btn" onclick="document.getElementById('modalProgram').style.display='none'; window.location.href='program.php'">Batal</button>
+            </form>
+        </div>
+    </div>
+    
+</div>
+
+<script>
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+        event.target.style.display = 'none';
+        window.location.href = 'program.php';
+    }
+}
+</script>
+
+</body>
+</html>
+
