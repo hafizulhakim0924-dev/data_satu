@@ -1,4 +1,12 @@
 <?php
+// Start output buffering to prevent any output before header
+ob_start();
+
+// Enable error reporting for debugging (remove in production)
+error_reporting(E_ALL);
+ini_set('display_errors', 0); // Don't display errors, but log them
+ini_set('log_errors', 1);
+
 require_once 'config.php';
 
 // Handle Actions
@@ -6,20 +14,102 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action == 'add_donasi') {
-        $stmt = $pdo->prepare("INSERT INTO csr_donations (donatur_id, nama_donatur, jumlah, tanggal, metode_pembayaran, kategori, program, keterangan, status) VALUES (?,?,?,?,?,?,?,?,?)");
-        $stmt->execute([$_POST['donatur_id'] ?: null, $_POST['nama_donatur'], $_POST['jumlah'], $_POST['tanggal'], $_POST['metode_pembayaran'], $_POST['kategori'], $_POST['program'], $_POST['keterangan'], 'pending']);
-        header("Location: donasi.php?msg=Donasi berhasil ditambahkan");
-        exit;
+        try {
+            // Validate required fields
+            if (empty($_POST['nama_donatur']) || empty($_POST['jumlah']) || empty($_POST['tanggal'])) {
+                ob_end_clean();
+                header("Location: donasi.php?error=" . urlencode("Data tidak lengkap. Pastikan nama donatur, jumlah, dan tanggal diisi."));
+                exit;
+            }
+            
+            // Prepare values
+            $donatur_id = !empty($_POST['donatur_id']) ? (int)$_POST['donatur_id'] : null;
+            $nama_donatur = trim($_POST['nama_donatur']);
+            $jumlah = (float)$_POST['jumlah'];
+            $tanggal = $_POST['tanggal'];
+            $metode_pembayaran = $_POST['metode_pembayaran'] ?? 'tunai';
+            $kategori = $_POST['kategori'] ?? 'donasi_umum';
+            $program = !empty($_POST['program']) ? trim($_POST['program']) : null;
+            $keterangan = !empty($_POST['keterangan']) ? trim($_POST['keterangan']) : null;
+            
+            // Validate jumlah
+            if ($jumlah <= 0) {
+                if (ob_get_level()) {
+                    ob_end_clean();
+                }
+                header("Location: donasi.php?error=" . urlencode("Jumlah donasi harus lebih dari 0"));
+                exit;
+            }
+            
+            // Insert donasi
+            $stmt = $pdo->prepare("INSERT INTO csr_donations (donatur_id, nama_donatur, jumlah, tanggal, metode_pembayaran, kategori, program, keterangan, status) VALUES (?,?,?,?,?,?,?,?,?)");
+            
+            // Execute with error handling
+            try {
+                $result = $stmt->execute([$donatur_id, $nama_donatur, $jumlah, $tanggal, $metode_pembayaran, $kategori, $program, $keterangan, 'pending']);
+                
+                if ($result) {
+                    // Clear any output buffer before redirect
+                    if (ob_get_level()) {
+                        ob_end_clean();
+                    }
+                    header("Location: donasi.php?msg=" . urlencode("Donasi berhasil ditambahkan"));
+                    exit;
+                } else {
+                    throw new Exception("Gagal menyimpan donasi ke database");
+                }
+            } catch(PDOException $ex) {
+                // Re-throw as PDOException to be caught by outer catch
+                throw $ex;
+            }
+        } catch(PDOException $e) {
+            // Log error and redirect with error message
+            error_log("Error adding donasi: " . $e->getMessage());
+            // Clear output buffer
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            $error_msg = urlencode("Error menyimpan donasi. Pastikan semua kolom di database sudah ada.");
+            header("Location: donasi.php?error=" . $error_msg);
+            exit;
+        } catch(Exception $e) {
+            error_log("Error adding donasi: " . $e->getMessage());
+            // Clear output buffer
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            $error_msg = urlencode("Error: " . $e->getMessage());
+            header("Location: donasi.php?error=" . $error_msg);
+            exit;
+        }
     }
     
     if ($action == 'update_status') {
-        $id = $_POST['id'];
-        $stmt = $pdo->prepare("UPDATE csr_donations SET status=? WHERE id=?");
-        $stmt->execute([$_POST['status'], $id]);
-        header("Location: donasi.php?msg=Status donasi berhasil diupdate");
-        exit;
+        try {
+            $id = (int)$_POST['id'];
+            $status = $_POST['status'] ?? 'pending';
+            
+            $stmt = $pdo->prepare("UPDATE csr_donations SET status=? WHERE id=?");
+            $stmt->execute([$status, $id]);
+            
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            header("Location: donasi.php?msg=Status donasi berhasil diupdate");
+            exit;
+        } catch(PDOException $e) {
+            error_log("Error updating status: " . $e->getMessage());
+            if (ob_get_level()) {
+                ob_end_clean();
+            }
+            header("Location: donasi.php?error=" . urlencode("Error mengupdate status"));
+            exit;
+        }
     }
 }
+
+// End output buffering for normal page display
+ob_end_flush();
 
 try {
     $donatur_list = $pdo->query("SELECT id, nama FROM donatur WHERE status='active' ORDER BY nama")->fetchAll();
@@ -107,6 +197,12 @@ table tr:hover { background:#f5f5f5 }
     
     <?php if(isset($_GET['msg'])): ?>
     <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
+    <?php endif; ?>
+    
+    <?php if(isset($_GET['error'])): ?>
+    <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
+        <strong>⚠️ Error:</strong> <?= htmlspecialchars($_GET['error']) ?>
+    </div>
     <?php endif; ?>
     
     <?php if(isset($error_msg)): ?>
