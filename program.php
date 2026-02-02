@@ -555,49 +555,21 @@ table tr:hover { background:#f5f5f5 }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // Initialize map for form (centered on West Sumatra)
-let mapForm = null;
-let markerForm = null;
-let mapInitialized = false;
+var mapForm = null;
+var markerForm = null;
 
 function initMapForm() {
     // Check if Leaflet is loaded
     if (typeof L === 'undefined') {
-        console.error('Leaflet library not loaded, retrying...');
-        // Try to load Leaflet manually if not loaded
-        if (!document.querySelector('script[src*="leaflet"]')) {
-            const script = document.createElement('script');
-            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-            script.onload = function() {
-                setTimeout(initMapForm, 200);
-            };
-            document.head.appendChild(script);
-        } else {
-            setTimeout(initMapForm, 500);
-        }
+        console.error('Leaflet library not loaded');
+        setTimeout(initMapForm, 500);
         return;
     }
     
     // Check if map div exists
-    const mapDiv = document.getElementById('mapForm');
+    var mapDiv = document.getElementById('mapForm');
     if (!mapDiv) {
         console.error('Map div not found');
-        return;
-    }
-    
-    // Check if div is visible (with multiple checks)
-    const isVisible = mapDiv.offsetParent !== null || 
-                     mapDiv.style.display !== 'none' || 
-                     window.getComputedStyle(mapDiv).display !== 'none';
-    
-    if (!isVisible) {
-        // Div is hidden, wait a bit and retry
-        setTimeout(initMapForm, 300);
-        return;
-    }
-    
-    // Ensure div has dimensions
-    if (mapDiv.offsetWidth === 0 || mapDiv.offsetHeight === 0) {
-        setTimeout(initMapForm, 300);
         return;
     }
     
@@ -607,36 +579,30 @@ function initMapForm() {
             mapForm.invalidateSize();
             return;
         } catch(e) {
-            // If error, reinitialize
             mapForm = null;
         }
     }
     
     try {
-        // Initialize map
-        mapForm = L.map('mapForm', {
-            zoomControl: true
-        }).setView([-0.94924, 100.35427], 8);
+        // Initialize map - simple approach like the example
+        mapForm = L.map('mapForm').setView([-0.94924, 100.35427], 8);
         
         // Add tile layer
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{s}/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 18
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
         }).addTo(mapForm);
         
         // Load existing coordinates if editing
-        const latInput = document.getElementById('latitude_input');
-        const lngInput = document.getElementById('longitude_input');
+        var latInput = document.getElementById('latitude_input');
+        var lngInput = document.getElementById('longitude_input');
         
         if (latInput && lngInput) {
-            const lat = latInput.value;
-            const lng = lngInput.value;
+            var lat = latInput.value;
+            var lng = lngInput.value;
             
             if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
-                setTimeout(function() {
-                    addMarkerToForm(parseFloat(lat), parseFloat(lng));
-                    mapForm.setView([parseFloat(lat), parseFloat(lng)], 13);
-                }, 100);
+                addMarkerToForm(parseFloat(lat), parseFloat(lng));
+                mapForm.setView([parseFloat(lat), parseFloat(lng)], 13);
             }
         }
         
@@ -645,17 +611,16 @@ function initMapForm() {
             addMarkerToForm(e.latlng.lat, e.latlng.lng);
         });
         
-        mapInitialized = true;
-        console.log('Map initialized successfully');
-        
         // Hide loading message
-        const loadingDiv = document.getElementById('mapLoading');
+        var loadingDiv = document.getElementById('mapLoading');
         if (loadingDiv) {
             loadingDiv.style.display = 'none';
         }
+        
+        console.log('Map initialized successfully');
     } catch(e) {
         console.error('Error initializing map:', e);
-        const loadingDiv = document.getElementById('mapLoading');
+        var loadingDiv = document.getElementById('mapLoading');
         if (loadingDiv) {
             loadingDiv.innerHTML = '<div style="color:#e74c3c">Error memuat peta. Silakan refresh halaman.</div>';
         }
@@ -668,7 +633,7 @@ function addMarkerToForm(lat, lng) {
         mapForm.removeLayer(markerForm);
     }
     
-    // Add new marker
+    // Add new marker - simple approach
     markerForm = L.marker([lat, lng], {
         draggable: true
     }).addTo(mapForm);
@@ -681,7 +646,7 @@ function addMarkerToForm(lat, lng) {
     
     // Update marker position on drag
     markerForm.on('dragend', function() {
-        const pos = markerForm.getLatLng();
+        var pos = markerForm.getLatLng();
         document.getElementById('latitude_input').value = pos.lat;
         document.getElementById('longitude_input').value = pos.lng;
         document.getElementById('coord_text').textContent = pos.lat.toFixed(6) + ', ' + pos.lng.toFixed(6);
@@ -699,7 +664,9 @@ function clearCoordinates() {
     document.getElementById('latitude_input').value = '';
     document.getElementById('longitude_input').value = '';
     document.getElementById('coordinate_display').style.display = 'none';
-    mapForm.setView([-0.94924, 100.35427], 8);
+    if (mapForm) {
+        mapForm.setView([-0.94924, 100.35427], 8);
+    }
 }
 
 // Function to open modal and initialize map
@@ -714,56 +681,38 @@ function openProgramModal() {
     }
 }
 
-// Initialize map when modal opens
+// Initialize map when modal opens - simple approach
 document.addEventListener('DOMContentLoaded', function() {
-    const modal = document.getElementById('modalProgram');
-    if (modal) {
-        // Use MutationObserver to detect when modal is shown
-        const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                    if (modal.style.display === 'block' || modal.style.display === '') {
-                        setTimeout(function() {
-                            initMapForm();
-                        }, 500);
-                    }
-                }
-            });
-        });
-        
-        observer.observe(modal, {
-            attributes: true,
-            attributeFilter: ['style', 'class']
-        });
-        
-        // Also check if modal is already open (for edit mode)
-        if (modal.style.display === 'block' || modal.style.display === '') {
-            setTimeout(function() {
-                initMapForm();
-            }, 500);
-        }
+    // Check if modal is already open (for edit mode)
+    var modal = document.getElementById('modalProgram');
+    if (modal && modal.style.display === 'block') {
+        setTimeout(initMapForm, 500);
     }
     
-    // Override button clicks to initialize map
-    document.addEventListener('click', function(e) {
-        const target = e.target;
-        if (target && (target.onclick && target.onclick.toString().includes('modalProgram') || 
-            target.closest('[onclick*="modalProgram"]') || 
-            target.id === 'modalProgram' || 
-            target.closest('#modalProgram'))) {
-            setTimeout(function() {
-                initMapForm();
-            }, 500);
-        }
+    // Watch for modal opening
+    var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                if (modal.style.display === 'block') {
+                    setTimeout(initMapForm, 500);
+                }
+            }
+        });
     });
     
-    // Also try to initialize after a delay (fallback)
-    setTimeout(function() {
-        const mapDiv = document.getElementById('mapForm');
-        if (mapDiv && mapDiv.offsetParent !== null && !mapInitialized) {
-            initMapForm();
+    if (modal) {
+        observer.observe(modal, {
+            attributes: true,
+            attributeFilter: ['style']
+        });
+    }
+    
+    // Also try after page fully loads
+    window.addEventListener('load', function() {
+        if (modal && modal.style.display === 'block') {
+            setTimeout(initMapForm, 500);
         }
-    }, 1000);
+    });
 });
 
 window.onclick = function(event) {
