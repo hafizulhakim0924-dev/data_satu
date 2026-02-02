@@ -67,6 +67,7 @@ $volunteer_list = $pdo->query("SELECT * FROM volunteer WHERE status='active' ORD
 <html>
 <head>
 <title>SDM - Rangkiang Peduli Negeri</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box }
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f4f6f8 }
@@ -326,6 +327,23 @@ table tr:hover { background:#f5f5f5 }
     <?php endif; ?>
     
     <?php if($tab == 'kehadiran'): ?>
+    <?php
+    // Generate QR code for today's attendance
+    $qr_secret = 'RPN_' . date('Y-m-d') . '_' . md5('rangkiang_peduli_negeri_' . date('Y-m-d'));
+    $qr_data = 'ATTENDANCE:' . $qr_secret;
+    ?>
+    <div class="card">
+        <h2>📱 QR Code Kehadiran Hari Ini</h2>
+        <p style="margin-bottom:20px">Tampilkan QR code ini untuk di-scan oleh karyawan</p>
+        <div style="text-align:center; padding:20px; background:#f8f9fa; border-radius:10px; margin-bottom:20px">
+            <div id="qrcode" style="display:inline-block; padding:20px; background:#fff; border-radius:10px"></div>
+            <p style="margin-top:15px; color:#666">
+                <strong>Tanggal:</strong> <?= date('d F Y') ?><br>
+                <small>QR Code berlaku untuk hari ini saja</small>
+            </p>
+        </div>
+    </div>
+    
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Kehadiran</h2>
@@ -704,6 +722,24 @@ table tr:hover { background:#f5f5f5 }
 </div>
 
 <script>
+// Generate QR Code for attendance
+<?php if($tab == 'kehadiran'): ?>
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof QRCode !== 'undefined') {
+        new QRCode(document.getElementById('qrcode'), {
+            text: '<?= $qr_data ?>',
+            width: 256,
+            height: 256,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+    } else {
+        document.getElementById('qrcode').innerHTML = '<p style="color:#e74c3c">Error loading QR code library. Silakan refresh halaman.</p>';
+    }
+});
+<?php endif; ?>
+
 // Close modal when clicking outside
 window.onclick = function(event) {
     if (event.target.classList.contains('modal')) {

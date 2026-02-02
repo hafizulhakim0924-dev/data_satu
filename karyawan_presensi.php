@@ -15,31 +15,43 @@ $karyawan = $karyawan->fetch();
 $today = date('Y-m-d');
 $message = '';
 
-// Handle QRIS scan submission
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'scan_qris') {
-    $qris_code = $_POST['qris_code'] ?? '';
-    $jam_masuk = date('H:i:s');
+// Handle QR code scan submission
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'scan_qr') {
+    $qr_code = $_POST['qr_code'] ?? '';
+    $current_time = date('H:i:s');
     
-    // Verify QRIS code (in real implementation, verify against actual QRIS)
-    // For now, we'll accept any code that matches a pattern
-    if (preg_match('/^QRIS.*/', $qris_code) || strlen($qris_code) > 10) {
-        // Check if already recorded today
-        $existing = $pdo->prepare("SELECT * FROM kehadiran WHERE karyawan_id=? AND tanggal=?");
-        $existing->execute([$karyawan_id, $today]);
+    // Verify QR code format: ATTENDANCE:{secret}
+    if (preg_match('/^ATTENDANCE:(.+)$/', $qr_code, $matches)) {
+        $qr_secret = $matches[1];
+        $expected_secret = 'RPN_' . date('Y-m-d') . '_' . md5('rangkiang_peduli_negeri_' . date('Y-m-d'));
         
-        if ($existing->fetch()) {
-            // Update jam keluar
-            $stmt = $pdo->prepare("UPDATE kehadiran SET jam_keluar=?, status='hadir' WHERE karyawan_id=? AND tanggal=?");
-            $stmt->execute([$jam_masuk, $karyawan_id, $today]);
-            $message = "success:Absen keluar berhasil dicatat pada jam " . date('H:i');
+        // Verify QR code is valid for today
+        if ($qr_secret === $expected_secret) {
+            // Check if already recorded today
+            $existing = $pdo->prepare("SELECT * FROM kehadiran WHERE karyawan_id=? AND tanggal=?");
+            $existing->execute([$karyawan_id, $today]);
+            $existing_data = $existing->fetch();
+            
+            if ($existing_data) {
+                // Already has jam_masuk, update jam_keluar
+                if ($existing_data['jam_masuk'] && !$existing_data['jam_keluar']) {
+                    $stmt = $pdo->prepare("UPDATE kehadiran SET jam_keluar=?, status='hadir' WHERE karyawan_id=? AND tanggal=?");
+                    $stmt->execute([$current_time, $karyawan_id, $today]);
+                    $message = "success:Absen keluar berhasil dicatat pada jam " . date('H:i');
+                } else {
+                    $message = "info:Anda sudah melakukan absen masuk dan keluar hari ini";
+                }
+            } else {
+                // Insert new attendance (jam masuk)
+                $stmt = $pdo->prepare("INSERT INTO kehadiran (karyawan_id, tanggal, jam_masuk, status) VALUES (?,?,?,'hadir')");
+                $stmt->execute([$karyawan_id, $today, $current_time]);
+                $message = "success:Absen masuk berhasil dicatat pada jam " . date('H:i');
+            }
         } else {
-            // Insert new attendance
-            $stmt = $pdo->prepare("INSERT INTO kehadiran (karyawan_id, tanggal, jam_masuk, status) VALUES (?,?,?,'hadir')");
-            $stmt->execute([$karyawan_id, $today, $jam_masuk]);
-            $message = "success:Absen masuk berhasil dicatat pada jam " . date('H:i');
+            $message = "error:QR Code tidak valid atau sudah kadaluarsa";
         }
     } else {
-        $message = "error:Kode QRIS tidak valid";
+        $message = "error:Format QR Code tidak valid";
     }
 }
 
@@ -123,16 +135,23 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
     <?php endif; ?>
     
     <div class="card">
-        <h3>📷 Scan QRIS untuk Absensi</h3>
+        <h3>📷 Scan QR Code untuk Absensi</h3>
         <div class="qr-scanner-area">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-            <button class="scan-button" onclick="startScan()">Mulai Scan QRIS</button>
-            <button class="scan-button" onclick="stopScan()" style="background:#e74c3c">Stop Scan</button>
+            <div id="video-container" style="position:relative; display:none">
+                <video id="video" autoplay playsinline style="width:100%; max-width:500px; border-radius:10px"></video>
+                <canvas id="canvas" style="display:none"></canvas>
+            </div>
+            <div id="scanner-placeholder" style="text-align:center; padding:40px">
+                <p style="font-size:18px; color:#666; margin-bottom:20px">Klik tombol di bawah untuk memulai scan</p>
+            </div>
+            <div style="text-align:center; margin-top:20px">
+                <button class="scan-button" onclick="startScan()" id="btnStart">📷 Mulai Scan QR Code</button>
+                <button class="scan-button" onclick="stopScan()" id="btnStop" style="background:#e74c3c; display:none">⏹ Stop Scan</button>
+            </div>
         </div>
-        <form method="POST" id="qrisForm" style="display:none">
-            <input type="hidden" name="action" value="scan_qris">
-            <input type="hidden" name="qris_code" id="qris_code">
+        <form method="POST" id="qrForm" style="display:none">
+            <input type="hidden" name="action" value="scan_qr">
+            <input type="hidden" name="qr_code" id="qr_code">
         </form>
         <div id="scanResult" style="margin-top:20px; padding:15px; background:#f8f9fa; border-radius:5px; display:none"></div>
     </div>
@@ -140,9 +159,10 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
     <div class="card">
         <h3>ℹ️ Cara Menggunakan</h3>
         <ol style="text-align:left; max-width:500px; margin:20px auto">
-            <li>Klik tombol "Mulai Scan QRIS"</li>
-            <li>Arahkan kamera ke QRIS code</li>
-            <li>Tunggu hingga QRIS terdeteksi</li>
+            <li>Klik tombol "Mulai Scan QR Code"</li>
+            <li>Izinkan akses kamera jika diminta</li>
+            <li>Arahkan kamera ke QR Code yang ditampilkan di halaman SDM</li>
+            <li>Tunggu hingga QR Code terdeteksi</li>
             <li>Absensi akan tercatat otomatis</li>
         </ol>
         <p style="color:#666; margin-top:20px">
@@ -151,9 +171,11 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
 let scanning = false;
 let stream = null;
+let scanInterval = null;
 
 function startScan() {
     if (scanning) return;
@@ -161,79 +183,123 @@ function startScan() {
     scanning = true;
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    const videoContainer = document.getElementById('video-container');
+    const scannerPlaceholder = document.getElementById('scanner-placeholder');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
     
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(function(mediaStream) {
-            stream = mediaStream;
-            video.srcObject = mediaStream;
-            video.play();
+    if (!video || !canvas) {
+        alert('Error: Video atau canvas element tidak ditemukan');
+        scanning = false;
+        return;
+    }
+    
+    navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        } 
+    })
+    .then(function(mediaStream) {
+        stream = mediaStream;
+        video.srcObject = mediaStream;
+        video.play();
+        
+        // Show video, hide placeholder
+        videoContainer.style.display = 'block';
+        scannerPlaceholder.style.display = 'none';
+        btnStart.style.display = 'none';
+        btnStop.style.display = 'inline-block';
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Start scanning loop
+        scanInterval = setInterval(function() {
+            if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) return;
             
-            // Simple QR code detection (in production, use a proper QR library like jsQR)
-            setInterval(function() {
-                if (!scanning) return;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Use jsQR library to detect QR code
+            if (typeof jsQR !== 'undefined') {
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: 'dontInvert'
+                });
                 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                ctx.drawImage(video, 0, 0);
-                
-                // For demo purposes, simulate QR detection
-                // In production, use jsQR library: https://github.com/cozmo/jsQR
-                const result = detectQRCode(canvas);
-                if (result) {
-                    document.getElementById('qris_code').value = result;
-                    document.getElementById('scanResult').innerHTML = '<p style="color:#27ae60">✓ QRIS terdeteksi: ' + result + '</p><p>Mencatat absensi...</p>';
-                    document.getElementById('qrisForm').submit();
-                    stopScan();
+                if (code) {
+                    const qrData = code.data;
+                    console.log('QR Code detected:', qrData);
+                    
+                    // Verify QR code format
+                    if (qrData.startsWith('ATTENDANCE:')) {
+                        document.getElementById('qr_code').value = qrData;
+                        document.getElementById('scanResult').innerHTML = '<p style="color:#27ae60">✓ QR Code terdeteksi!</p><p>Mencatat absensi...</p>';
+                        document.getElementById('scanResult').style.display = 'block';
+                        
+                        // Submit form
+                        setTimeout(function() {
+                            document.getElementById('qrForm').submit();
+                        }, 500);
+                        
+                        stopScan();
+                    } else {
+                        document.getElementById('scanResult').innerHTML = '<p style="color:#e74c3c">✗ QR Code tidak valid untuk kehadiran</p>';
+                        document.getElementById('scanResult').style.display = 'block';
+                    }
                 }
-            }, 500);
-        })
-        .catch(function(err) {
-            alert('Error accessing camera: ' + err.message);
-            scanning = false;
-        });
+            } else {
+                console.error('jsQR library not loaded');
+                stopScan();
+                alert('Error: Library QR Code tidak ter-load. Silakan refresh halaman.');
+            }
+        }, 100); // Check every 100ms
+    })
+    .catch(function(err) {
+        console.error('Error accessing camera:', err);
+        alert('Error mengakses kamera: ' + err.message + '\n\nPastikan Anda memberikan izin akses kamera.');
+        scanning = false;
+        btnStart.style.display = 'inline-block';
+        btnStop.style.display = 'none';
+    });
 }
 
 function stopScan() {
     scanning = false;
+    
+    if (scanInterval) {
+        clearInterval(scanInterval);
+        scanInterval = null;
+    }
+    
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
     }
+    
     const video = document.getElementById('video');
-    video.srcObject = null;
-}
-
-// Simple QR code detection simulation
-// In production, replace with actual QR code library
-function detectQRCode(canvas) {
-    // This is a placeholder - in production use jsQR or similar library
-    // For now, return null to require manual input
-    return null;
-}
-
-// Alternative: Manual QRIS code input
-document.addEventListener('DOMContentLoaded', function() {
-    const manualInput = document.createElement('div');
-    manualInput.innerHTML = `
-        <div style="margin-top:20px">
-            <h4>Atau masukkan kode QRIS secara manual:</h4>
-            <input type="text" id="manualQris" placeholder="Masukkan kode QRIS" style="padding:10px; width:300px; border:1px solid #ddd; border-radius:5px; margin:10px">
-            <button onclick="submitManualQris()" class="btn btn-success">Submit</button>
-        </div>
-    `;
-    document.querySelector('.qr-scanner-area').appendChild(manualInput);
-});
-
-function submitManualQris() {
-    const code = document.getElementById('manualQris').value;
-    if (code && code.length > 5) {
-        document.getElementById('qris_code').value = 'QRIS-' + code;
-        document.getElementById('qrisForm').submit();
-    } else {
-        alert('Kode QRIS tidak valid');
+    const videoContainer = document.getElementById('video-container');
+    const scannerPlaceholder = document.getElementById('scanner-placeholder');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    
+    if (video) {
+        video.srcObject = null;
     }
+    
+    if (videoContainer) videoContainer.style.display = 'none';
+    if (scannerPlaceholder) scannerPlaceholder.style.display = 'block';
+    if (btnStart) btnStart.style.display = 'inline-block';
+    if (btnStop) btnStop.style.display = 'none';
 }
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+    stopScan();
+});
 </script>
 
 </body>
