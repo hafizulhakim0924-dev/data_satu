@@ -6,9 +6,107 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action == 'add_karyawan') {
-        $stmt = $pdo->prepare("INSERT INTO karyawan (nip, nama_lengkap, email, no_hp, alamat, jabatan, departemen, tanggal_masuk, status_karyawan, gaji_pokok, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-        $stmt->execute([$_POST['nip'], $_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['jabatan'], $_POST['departemen'], $_POST['tanggal_masuk'], $_POST['status_karyawan'], $_POST['gaji_pokok'], 'active']);
-        header("Location: hr.php?msg=Karyawan berhasil ditambahkan");
+        try {
+            $pdo->beginTransaction();
+            
+            // Create user account if username and password provided
+            $user_id = null;
+            if (!empty($_POST['username']) && !empty($_POST['password'])) {
+                $hashed_password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+                $user_stmt = $pdo->prepare("INSERT INTO users (username, email, password, nama_lengkap, nip, jabatan, departemen, no_hp, alamat, role, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+                $user_stmt->execute([
+                    $_POST['username'], 
+                    $_POST['email'] ?: $_POST['username'] . '@rangkiangpedulinegeri.id',
+                    $hashed_password,
+                    $_POST['nama'],
+                    $_POST['nip'],
+                    $_POST['jabatan'],
+                    $_POST['departemen'],
+                    $_POST['no_hp'],
+                    $_POST['alamat'],
+                    'staff',
+                    'active'
+                ]);
+                $user_id = $pdo->lastInsertId();
+            }
+            
+            // Insert karyawan
+            $stmt = $pdo->prepare("INSERT INTO karyawan (user_id, nip, nama_lengkap, email, no_hp, alamat, jabatan, departemen, tanggal_masuk, status_karyawan, gaji_pokok, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$user_id, $_POST['nip'], $_POST['nama'], $_POST['email'], $_POST['no_hp'], $_POST['alamat'], $_POST['jabatan'], $_POST['departemen'], $_POST['tanggal_masuk'], $_POST['status_karyawan'], $_POST['gaji_pokok'], 'active']);
+            
+            // Update user_id in karyawan if user was created
+            if ($user_id) {
+                $karyawan_id = $pdo->lastInsertId();
+                $update_stmt = $pdo->prepare("UPDATE karyawan SET user_id=? WHERE id=?");
+                $update_stmt->execute([$user_id, $karyawan_id]);
+            }
+            
+            $pdo->commit();
+            header("Location: hr.php?tab=karyawan&msg=Karyawan berhasil ditambahkan");
+            exit;
+        } catch(PDOException $e) {
+            $pdo->rollBack();
+            header("Location: hr.php?tab=karyawan&msg=Error: " . $e->getMessage());
+            exit;
+        }
+    }
+    
+    if ($action == 'reset_password') {
+        $karyawan_id = $_POST['karyawan_id'];
+        $new_password = $_POST['new_password'];
+        
+        // Get user_id from karyawan
+        $karyawan = $pdo->prepare("SELECT user_id FROM karyawan WHERE id=?");
+        $karyawan->execute([$karyawan_id]);
+        $karyawan_data = $karyawan->fetch();
+        
+        if ($karyawan_data && $karyawan_data['user_id']) {
+            $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+            $stmt = $pdo->prepare("UPDATE users SET password=? WHERE id=?");
+            $stmt->execute([$hashed_password, $karyawan_data['user_id']]);
+            header("Location: hr.php?tab=karyawan&msg=Password berhasil direset");
+        } else {
+            header("Location: hr.php?tab=karyawan&msg=Karyawan tidak memiliki akun user");
+        }
+        exit;
+    }
+    
+    if ($action == 'create_user_account') {
+        $karyawan_id = $_POST['karyawan_id'];
+        $username = $_POST['username'];
+        $password = $_POST['password'];
+        
+        // Get karyawan data
+        $karyawan = $pdo->prepare("SELECT * FROM karyawan WHERE id=?");
+        $karyawan->execute([$karyawan_id]);
+        $karyawan_data = $karyawan->fetch();
+        
+        if ($karyawan_data) {
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+            $user_stmt = $pdo->prepare("INSERT INTO users (username, email, password, nama_lengkap, nip, jabatan, departemen, no_hp, alamat, role, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+            $user_stmt->execute([
+                $username,
+                $karyawan_data['email'] ?: $username . '@rangkiangpedulinegeri.id',
+                $hashed_password,
+                $karyawan_data['nama_lengkap'],
+                $karyawan_data['nip'],
+                $karyawan_data['jabatan'],
+                $karyawan_data['departemen'],
+                $karyawan_data['no_hp'],
+                $karyawan_data['alamat'],
+                'staff',
+                'active'
+            ]);
+            $user_id = $pdo->lastInsertId();
+            
+            // Update karyawan with user_id
+            $update_stmt = $pdo->prepare("UPDATE karyawan SET user_id=? WHERE id=?");
+            $update_stmt->execute([$user_id, $karyawan_id]);
+            
+            header("Location: hr.php?tab=karyawan&msg=Akun user berhasil dibuat");
+        } else {
+            header("Location: hr.php?tab=karyawan&msg=Karyawan tidak ditemukan");
+        }
         exit;
     }
     
@@ -60,7 +158,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 $tab = $_GET['tab'] ?? 'karyawan';
-$karyawan_list = $pdo->query("SELECT * FROM karyawan WHERE status='active' ORDER BY nama_lengkap")->fetchAll();
+$karyawan_list = $pdo->query("
+    SELECT k.*, u.username, u.id as user_id, u.status as user_status
+    FROM karyawan k
+    LEFT JOIN users u ON k.user_id = u.id
+    WHERE k.status='active' 
+    ORDER BY k.nama_lengkap
+")->fetchAll();
 $volunteer_list = $pdo->query("SELECT * FROM volunteer WHERE status='active' ORDER BY nama")->fetchAll();
 ?>
 <!DOCTYPE html>
@@ -140,6 +244,7 @@ table tr:hover { background:#f5f5f5 }
                 <tr>
                     <th>NIP</th>
                     <th>Nama</th>
+                    <th>Username</th>
                     <th>Jabatan</th>
                     <th>Departemen</th>
                     <th>Status</th>
@@ -152,12 +257,24 @@ table tr:hover { background:#f5f5f5 }
                 <tr>
                     <td><?= htmlspecialchars($k['nip']) ?></td>
                     <td><?= htmlspecialchars($k['nama_lengkap']) ?></td>
+                    <td>
+                        <?php if($k['username']): ?>
+                            <span style="color:#27ae60">✓ <?= htmlspecialchars($k['username']) ?></span>
+                        <?php else: ?>
+                            <span style="color:#e74c3c">✗ Belum ada akun</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= htmlspecialchars($k['jabatan'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($k['departemen'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($k['status_karyawan']) ?></td>
                     <td><?= formatRupiah($k['gaji_pokok']) ?></td>
                     <td>
                         <a href="?tab=karyawan&edit=<?= $k['id'] ?>" class="btn btn-warning btn-sm">Edit</a>
+                        <?php if($k['user_id']): ?>
+                            <button onclick="openResetPassword(<?= $k['id'] ?>, '<?= htmlspecialchars($k['username']) ?>')" class="btn btn-sm" style="background:#f39c12">Reset Password</button>
+                        <?php else: ?>
+                            <button onclick="openCreateAccount(<?= $k['id'] ?>, '<?= htmlspecialchars($k['nama_lengkap']) ?>')" class="btn btn-success btn-sm">Buat Akun</button>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -223,8 +340,81 @@ table tr:hover { background:#f5f5f5 }
                     <label>Alamat</label>
                     <textarea name="alamat"></textarea>
                 </div>
+                <div style="border-top:2px solid #ddd; padding-top:20px; margin-top:20px">
+                    <h3 style="margin-bottom:15px">🔐 Buat Akun Login (Opsional)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" name="username" placeholder="Username untuk login">
+                            <small style="color:#666">Jika dikosongkan, akun tidak akan dibuat</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" name="password" placeholder="Password untuk login">
+                            <small style="color:#666">Minimal 6 karakter</small>
+                        </div>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-success">Simpan</button>
                 <button type="button" class="btn" onclick="document.getElementById('modalKaryawan').style.display='none'">Batal</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Modal Reset Password -->
+    <div id="modalResetPassword" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('modalResetPassword').style.display='none'">&times;</span>
+            <h2>Reset Password</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="reset_password">
+                <input type="hidden" name="karyawan_id" id="reset_karyawan_id">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="reset_username" readonly style="background:#f0f0f0">
+                </div>
+                <div class="form-group">
+                    <label>Password Baru *</label>
+                    <input type="password" name="new_password" required minlength="6" placeholder="Masukkan password baru">
+                </div>
+                <div class="form-group">
+                    <label>Konfirmasi Password *</label>
+                    <input type="password" id="confirm_password" required minlength="6" placeholder="Konfirmasi password baru">
+                </div>
+                <button type="submit" class="btn btn-success" onclick="return validatePassword()">Reset Password</button>
+                <button type="button" class="btn" onclick="document.getElementById('modalResetPassword').style.display='none'">Batal</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Modal Buat Akun -->
+    <div id="modalCreateAccount" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="document.getElementById('modalCreateAccount').style.display='none'">&times;</span>
+            <h2>Buat Akun Login</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="create_user_account">
+                <input type="hidden" name="karyawan_id" id="create_karyawan_id">
+                <div class="form-group">
+                    <label>Nama Karyawan</label>
+                    <input type="text" id="create_nama" readonly style="background:#f0f0f0">
+                </div>
+                <div class="form-group">
+                    <label>Username *</label>
+                    <input type="text" name="username" required placeholder="Username untuk login">
+                    <small style="color:#666">Username harus unik</small>
+                </div>
+                <div class="form-group">
+                    <label>Password *</label>
+                    <input type="password" name="password" required minlength="6" placeholder="Password untuk login">
+                    <small style="color:#666">Minimal 6 karakter</small>
+                </div>
+                <div class="form-group">
+                    <label>Konfirmasi Password *</label>
+                    <input type="password" id="create_confirm_password" required minlength="6" placeholder="Konfirmasi password">
+                </div>
+                <button type="submit" class="btn btn-success" onclick="return validateCreatePassword()">Buat Akun</button>
+                <button type="button" class="btn" onclick="document.getElementById('modalCreateAccount').style.display='none'">Batal</button>
             </form>
         </div>
     </div>
@@ -739,6 +929,53 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 <?php endif; ?>
+
+// Functions for password management
+function openResetPassword(karyawanId, username) {
+    document.getElementById('reset_karyawan_id').value = karyawanId;
+    document.getElementById('reset_username').value = username;
+    document.getElementById('modalResetPassword').style.display = 'block';
+}
+
+function openCreateAccount(karyawanId, nama) {
+    document.getElementById('create_karyawan_id').value = karyawanId;
+    document.getElementById('create_nama').value = nama;
+    document.getElementById('modalCreateAccount').style.display = 'block';
+}
+
+function validatePassword() {
+    const password = document.querySelector('input[name="new_password"]').value;
+    const confirm = document.getElementById('confirm_password').value;
+    
+    if (password !== confirm) {
+        alert('Password dan konfirmasi password tidak sama!');
+        return false;
+    }
+    
+    if (password.length < 6) {
+        alert('Password minimal 6 karakter!');
+        return false;
+    }
+    
+    return true;
+}
+
+function validateCreatePassword() {
+    const password = document.querySelector('input[name="password"]').value;
+    const confirm = document.getElementById('create_confirm_password').value;
+    
+    if (password !== confirm) {
+        alert('Password dan konfirmasi password tidak sama!');
+        return false;
+    }
+    
+    if (password.length < 6) {
+        alert('Password minimal 6 karakter!');
+        return false;
+    }
+    
+    return true;
+}
 
 // Close modal when clicking outside
 window.onclick = function(event) {
