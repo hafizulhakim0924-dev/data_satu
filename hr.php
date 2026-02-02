@@ -47,6 +47,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         header("Location: hr.php?tab=volunteer&msg=Volunteer berhasil ditambahkan");
         exit;
     }
+    
+    if ($action == 'delete_volunteer') {
+        $id = $_POST['id'] ?? $_GET['id'] ?? null;
+        if ($id) {
+            $stmt = $pdo->prepare("DELETE FROM volunteer WHERE id=?");
+            $stmt->execute([$id]);
+            header("Location: hr.php?tab=volunteer&msg=Volunteer berhasil dihapus");
+            exit;
+        }
+    }
 }
 
 $tab = $_GET['tab'] ?? 'karyawan';
@@ -119,7 +129,10 @@ table tr:hover { background:#f5f5f5 }
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Karyawan</h2>
-            <button class="btn" onclick="document.getElementById('modalKaryawan').style.display='block'">+ Tambah Karyawan</button>
+            <div>
+                <a href="export_excel.php?type=karyawan" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalKaryawan').style.display='block'">+ Tambah Karyawan</button>
+            </div>
         </div>
         <table>
             <thead>
@@ -612,6 +625,11 @@ table tr:hover { background:#f5f5f5 }
                     <td><?= htmlspecialchars($v['status']) ?></td>
                     <td>
                         <a href="?tab=volunteer&view=<?= $v['id'] ?>" class="btn btn-sm">View</a>
+                        <form method="POST" style="display:inline" onsubmit="return confirm('Yakin ingin menghapus volunteer ini?')">
+                            <input type="hidden" name="action" value="delete_volunteer">
+                            <input type="hidden" name="id" value="<?= $v['id'] ?>">
+                            <button type="submit" class="btn btn-danger btn-sm">Hapus</button>
+                        </form>
                     </td>
                 </tr>
                 <?php endforeach; ?>

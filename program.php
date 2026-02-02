@@ -6,17 +6,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action == 'add_program') {
-        $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, tanggal_mulai, tanggal_selesai, budget, status, pic) VALUES (?,?,?,?,?,?,?,?,?)");
-        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], 'planning', $_POST['pic'] ?: null]);
+        $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, latitude, longitude, tanggal_mulai, tanggal_selesai, budget, status, pic) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['latitude'] ?: null, $_POST['longitude'] ?: null, $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], 'planning', $_POST['pic'] ?: null]);
         header("Location: program.php?msg=Program berhasil ditambahkan");
         exit;
     }
     
     if ($action == 'update_program') {
         $id = $_POST['id'];
-        $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=? WHERE id=?");
-        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], $_POST['status'], $_POST['pic'] ?: null, $id]);
+        $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, latitude=?, longitude=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=? WHERE id=?");
+        $stmt->execute([$_POST['nama_program'], $_POST['kategori'], $_POST['deskripsi'], $_POST['lokasi'], $_POST['latitude'] ?: null, $_POST['longitude'] ?: null, $_POST['tanggal_mulai'], $_POST['tanggal_selesai'], $_POST['budget'], $_POST['status'], $_POST['pic'] ?: null, $id]);
         header("Location: program.php?msg=Program berhasil diupdate");
+        exit;
+    }
+    
+    if ($action == 'save_map_pin') {
+        header('Content-Type: application/json');
+        $id = $_POST['program_id'];
+        $lat = $_POST['latitude'];
+        $lng = $_POST['longitude'];
+        try {
+            $stmt = $pdo->prepare("UPDATE program_csr SET latitude=?, longitude=? WHERE id=?");
+            $stmt->execute([$lat, $lng, $id]);
+            echo json_encode(['success' => true]);
+        } catch(PDOException $e) {
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
         exit;
     }
 }
@@ -128,10 +143,20 @@ table tr:hover { background:#f5f5f5 }
     </div>
     <?php endif; ?>
     
+    <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:2px solid #ddd; padding-bottom:10px">
+        <a href="program.php" class="btn <?= !isset($_GET['tab']) || $_GET['tab'] == 'list' ? 'btn-success' : '' ?>">📋 Daftar Program</a>
+        <a href="program.php?tab=sebaran" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'sebaran' ? 'btn-success' : '' ?>">🗺️ Sebaran Aksi Program</a>
+        <a href="program.php?tab=peta" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'peta' ? 'btn-success' : '' ?>">📍 Peta Sebaran</a>
+    </div>
+    
+    <?php if(!isset($_GET['tab']) || $_GET['tab'] == 'list'): ?>
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Program</h2>
-            <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program</button>
+            <div>
+                <a href="export_excel.php?type=program" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program</button>
+            </div>
         </div>
         
         <table>
@@ -191,6 +216,245 @@ table tr:hover { background:#f5f5f5 }
             </tbody>
         </table>
     </div>
+    <?php endif; ?>
+    
+    <?php if(isset($_GET['tab']) && $_GET['tab'] == 'sebaran'): ?>
+    <?php
+    // Get program distribution by category
+    $sebaran_kategori = $pdo->query("
+        SELECT kategori, COUNT(*) as jumlah, SUM(budget) as total_budget
+        FROM program_csr
+        GROUP BY kategori
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get program distribution by status
+    $sebaran_status = $pdo->query("
+        SELECT status, COUNT(*) as jumlah
+        FROM program_csr
+        GROUP BY status
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    ?>
+    <div class="card">
+        <h2>📊 Sebaran Aksi Program</h2>
+        <div class="grid" style="margin-top:20px">
+            <div class="card">
+                <h3>Sebaran Berdasarkan Kategori</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kategori</th>
+                            <th>Jumlah Program</th>
+                            <th>Total Budget</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($sebaran_kategori as $sk): ?>
+                        <tr>
+                            <td><?= ucfirst($sk['kategori']) ?></td>
+                            <td><strong><?= $sk['jumlah'] ?></strong></td>
+                            <td><?= formatRupiah($sk['total_budget'] ?? 0) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Sebaran Berdasarkan Status</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Jumlah Program</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($sebaran_status as $ss): ?>
+                        <tr>
+                            <td><?= ucfirst($ss['status']) ?></td>
+                            <td><strong><?= $ss['jumlah'] ?></strong></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+    
+    <?php if(isset($_GET['tab']) && $_GET['tab'] == 'peta'): ?>
+    <?php
+    // Get all programs with coordinates
+    $programs_with_coords = $pdo->query("
+        SELECT id, nama_program, kategori, lokasi, latitude, longitude, status, budget
+        FROM program_csr
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get all programs for dropdown
+    $all_programs = $pdo->query("SELECT id, nama_program, lokasi FROM program_csr ORDER BY nama_program")->fetchAll();
+    ?>
+    <div class="card">
+        <h2>📍 Peta Sebaran Aksi Program - Sumatera Barat</h2>
+        <p style="margin-bottom:20px">Klik pada peta untuk menambahkan atau mengedit pin lokasi program</p>
+        
+        <div style="margin-bottom:20px">
+            <label><strong>Pilih Program untuk Edit Koordinat:</strong></label>
+            <select id="programSelect" onchange="loadProgramLocation()" style="padding:10px; width:300px; margin-left:10px">
+                <option value="">Pilih Program</option>
+                <?php foreach($all_programs as $p): ?>
+                <option value="<?= $p['id'] ?>" data-lat="<?= $p['latitude'] ?? '' ?>" data-lng="<?= $p['longitude'] ?? '' ?>">
+                    <?= htmlspecialchars($p['nama_program']) ?> - <?= htmlspecialchars($p['lokasi'] ?? '-') ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <button onclick="clearSelection()" class="btn btn-warning" style="margin-left:10px">Clear Selection</button>
+        </div>
+        
+        <div id="map" style="height:600px; width:100%; border:2px solid #ddd; border-radius:8px"></div>
+        
+        <div style="margin-top:20px; padding:15px; background:#f8f9fa; border-radius:5px">
+            <h4>Legenda:</h4>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:10px">
+                <div><span style="color:#3498db">●</span> Planning</div>
+                <div><span style="color:#27ae60">●</span> Ongoing</div>
+                <div><span style="color:#95a5a6">●</span> Completed</div>
+                <div><span style="color:#e74c3c">●</span> Cancelled</div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script>
+    // Initialize map centered on West Sumatra (Padang)
+    const map = L.map('map').setView([-0.94924, 100.35427], 8);
+    
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{s}/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 18
+    }).addTo(map);
+    
+    const markers = [];
+    let selectedProgramId = null;
+    let currentMarker = null;
+    
+    // Add existing program markers
+    const programs = <?= json_encode($programs_with_coords) ?>;
+    const statusColors = {
+        'planning': '#3498db',
+        'ongoing': '#27ae60',
+        'completed': '#95a5a6',
+        'cancelled': '#e74c3c'
+    };
+    
+    programs.forEach(function(program) {
+        const marker = L.marker([parseFloat(program.latitude), parseFloat(program.longitude)], {
+            draggable: true
+        }).addTo(map);
+        
+        marker.bindPopup(`
+            <strong>${program.nama_program}</strong><br>
+            Kategori: ${program.kategori}<br>
+            Lokasi: ${program.lokasi || '-'}<br>
+            Status: ${program.status}<br>
+            Budget: Rp ${parseFloat(program.budget || 0).toLocaleString('id-ID')}
+        `);
+        
+        marker.on('dragend', function() {
+            saveMarkerLocation(program.id, marker.getLatLng().lat, marker.getLatLng().lng);
+        });
+        
+        markers.push({id: program.id, marker: marker, program: program});
+    });
+    
+    // Add click event to map for adding new pins
+    map.on('click', function(e) {
+        if (selectedProgramId) {
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+            }
+            
+            currentMarker = L.marker([e.latlng.lat, e.latlng.lng], {
+                draggable: true
+            }).addTo(map);
+            
+            currentMarker.on('dragend', function() {
+                saveMarkerLocation(selectedProgramId, currentMarker.getLatLng().lat, currentMarker.getLatLng().lng);
+            });
+            
+            saveMarkerLocation(selectedProgramId, e.latlng.lat, e.latlng.lng);
+        } else {
+            alert('Pilih program terlebih dahulu dari dropdown di atas');
+        }
+    });
+    
+    function loadProgramLocation() {
+        const select = document.getElementById('programSelect');
+        const option = select.options[select.selectedIndex];
+        selectedProgramId = select.value;
+        
+        if (option.dataset.lat && option.dataset.lng) {
+            const lat = parseFloat(option.dataset.lat);
+            const lng = parseFloat(option.dataset.lng);
+            map.setView([lat, lng], 13);
+            
+            // Find existing marker
+            const existing = markers.find(m => m.id == selectedProgramId);
+            if (existing) {
+                map.setView([lat, lng], 13);
+                existing.marker.openPopup();
+            } else {
+                if (currentMarker) {
+                    map.removeLayer(currentMarker);
+                }
+                currentMarker = L.marker([lat, lng], {
+                    draggable: true
+                }).addTo(map);
+                currentMarker.on('dragend', function() {
+                    saveMarkerLocation(selectedProgramId, currentMarker.getLatLng().lat, currentMarker.getLatLng().lng);
+                });
+            }
+        } else {
+            // Center on West Sumatra
+            map.setView([-0.94924, 100.35427], 8);
+        }
+    }
+    
+    function clearSelection() {
+        document.getElementById('programSelect').value = '';
+        selectedProgramId = null;
+        if (currentMarker) {
+            map.removeLayer(currentMarker);
+            currentMarker = null;
+        }
+    }
+    
+    function saveMarkerLocation(programId, lat, lng) {
+        const formData = new FormData();
+        formData.append('action', 'save_map_pin');
+        formData.append('program_id', programId);
+        formData.append('latitude', lat);
+        formData.append('longitude', lng);
+        
+        fetch('program.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Koordinat berhasil disimpan!');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error menyimpan koordinat');
+        });
+    }
+    </script>
+    <?php endif; ?>
     
     <!-- Modal Tambah/Edit Program -->
     <div id="modalProgram" class="modal" style="<?= $edit_program ? 'display:block' : '' ?>">
@@ -231,6 +495,17 @@ table tr:hover { background:#f5f5f5 }
                 <div class="form-group">
                     <label>Lokasi</label>
                     <input type="text" name="lokasi" value="<?= $edit_program['lokasi'] ?? '' ?>" placeholder="Alamat/lokasi program">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Latitude (Opsional)</label>
+                        <input type="number" step="any" name="latitude" value="<?= $edit_program['latitude'] ?? '' ?>" placeholder="-0.94924">
+                        <small style="color:#666">Gunakan tab Peta untuk memilih koordinat</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Longitude (Opsional)</label>
+                        <input type="number" step="any" name="longitude" value="<?= $edit_program['longitude'] ?? '' ?>" placeholder="100.35427">
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">

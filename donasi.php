@@ -138,7 +138,10 @@ table tr:hover { background:#f5f5f5 }
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Donasi</h2>
-            <button class="btn" onclick="document.getElementById('modalDonasi').style.display='block'">+ Tambah Donasi</button>
+            <div>
+                <a href="export_excel.php?type=donasi" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalDonasi').style.display='block'">+ Tambah Donasi</button>
+            </div>
         </div>
         
         <table>

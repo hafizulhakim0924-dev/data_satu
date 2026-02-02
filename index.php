@@ -78,6 +78,8 @@ table tr:hover { background:#f5f5f5 }
 .form-group label { display:block; margin-bottom:5px; font-weight:600; color:#2c3e50 }
 .form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:5px; font-size:14px }
 .form-group textarea { min-height:100px; resize:vertical }
+.text-success { color:#27ae60; font-weight:600 }
+.text-danger { color:#e74c3c }
 </style>
 </head>
 <body>
@@ -110,14 +112,49 @@ table tr:hover { background:#f5f5f5 }
 <?php
 // Get additional statistics
 $total_donatur = $pdo->query("SELECT COUNT(*) FROM donatur WHERE status='active'")->fetchColumn();
-$total_karyawan = $pdo->query("SELECT COUNT(*) FROM karyawan WHERE status='active'")->fetchColumn();
-$total_volunteer = $pdo->query("SELECT COUNT(*) FROM volunteer WHERE status='active'")->fetchColumn();
+try {
+    $total_karyawan = $pdo->query("SELECT COUNT(*) FROM karyawan WHERE status='active'")->fetchColumn() ?: 0;
+} catch(PDOException $e) {
+    $total_karyawan = 0;
+}
+try {
+    $total_volunteer = $pdo->query("SELECT COUNT(*) FROM volunteer WHERE status='active'")->fetchColumn() ?: 0;
+} catch(PDOException $e) {
+    $total_volunteer = 0;
+}
 $total_program = $pdo->query("SELECT COUNT(*) FROM program_csr")->fetchColumn();
 $program_ongoing = $pdo->query("SELECT COUNT(*) FROM program_csr WHERE status='ongoing'")->fetchColumn();
 
-$total_pemasukan = $pdo->query("SELECT SUM(jumlah) FROM pemasukan WHERE status='verified'")->fetchColumn();
-$total_pengeluaran = $pdo->query("SELECT SUM(jumlah) FROM pengeluaran WHERE status='paid'")->fetchColumn();
+$total_pemasukan = $pdo->query("SELECT SUM(jumlah) FROM pemasukan WHERE status='verified'")->fetchColumn() ?: 0;
+$total_pengeluaran = $pdo->query("SELECT SUM(jumlah) FROM pengeluaran WHERE status='paid'")->fetchColumn() ?: 0;
 $saldo = $total_pemasukan - $total_pengeluaran;
+
+// Daily donation movement (30 hari terakhir)
+$daily_movement = $pdo->query("
+    SELECT DATE(tanggal) as tgl, SUM(jumlah) as total, COUNT(*) as jumlah
+    FROM csr_donations
+    WHERE tanggal >= CURDATE()-INTERVAL 30 DAY AND status='verified'
+    GROUP BY DATE(tanggal)
+    ORDER BY tgl DESC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Monthly donation (12 bulan terakhir)
+$monthly_donation = $pdo->query("
+    SELECT DATE_FORMAT(tanggal, '%Y-%m') as bulan, 
+           DATE_FORMAT(tanggal, '%M %Y') as bulan_label,
+           SUM(jumlah) as total, COUNT(*) as jumlah
+    FROM csr_donations
+    WHERE tanggal >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status='verified'
+    GROUP BY DATE_FORMAT(tanggal, '%Y-%m')
+    ORDER BY bulan DESC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Daily total (hari ini)
+$daily_total = $pdo->query("
+    SELECT SUM(jumlah) as total, COUNT(*) as jumlah
+    FROM csr_donations
+    WHERE DATE(tanggal) = CURDATE() AND status='verified'
+")->fetch(PDO::FETCH_ASSOC);
 ?>
 
 <div class="grid">
@@ -127,16 +164,21 @@ $saldo = $total_pemasukan - $total_pengeluaran;
     </div>
     <div class="card">
         <h3>Total Karyawan</h3>
-        <div class="big"><?= number_format($total_karyawan ?? 0, 0, ',', '.') ?></div>
+        <div class="big"><?= number_format($total_karyawan, 0, ',', '.') ?></div>
     </div>
     <div class="card">
         <h3>Total Volunteer</h3>
-        <div class="big"><?= number_format($total_volunteer ?? 0, 0, ',', '.') ?></div>
+        <div class="big"><?= number_format($total_volunteer, 0, ',', '.') ?></div>
     </div>
     <div class="card">
         <h3>Total Program</h3>
         <div class="big"><?= number_format($total_program ?? 0, 0, ',', '.') ?></div>
         <small>Ongoing: <?= $program_ongoing ?? 0 ?></small>
+    </div>
+    <div class="card">
+        <h3>Total Harian (Hari Ini)</h3>
+        <div class="big" style="color:#27ae60">Rp <?= number_format($daily_total['total'] ?? 0, 0, ',', '.') ?></div>
+        <small><?= $daily_total['jumlah'] ?? 0 ?> transaksi</small>
     </div>
 </div>
 
@@ -156,21 +198,62 @@ $saldo = $total_pemasukan - $total_pengeluaran;
 </div>
 
 <div class="card">
-    <h3>📈 Trend Donasi 7 Hari Terakhir</h3>
-    <canvas id="trendChart" style="max-height:300px"></canvas>
+    <h3>📊 Tabel Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
+    <div style="max-height:400px; overflow-y:auto">
+        <table>
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Jumlah Transaksi</th>
+                    <th>Total Donasi</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if(empty($daily_movement)): ?>
+                <tr>
+                    <td colspan="3" style="text-align:center; padding:20px; color:#999">Belum ada data</td>
+                </tr>
+                <?php else: ?>
+                <?php foreach($daily_movement as $dm): ?>
+                <tr>
+                    <td><?= date('d/m/Y', strtotime($dm['tgl'])) ?></td>
+                    <td><?= $dm['jumlah'] ?> transaksi</td>
+                    <td class="text-success"><strong><?= formatRupiah($dm['total']) ?></strong></td>
+                </tr>
+                <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>📈 Chart Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
+    <canvas id="dailyChart" style="max-height:300px"></canvas>
+</div>
+
+<div class="card">
+    <h3>📅 Chart Donasi Bulanan (12 Bulan Terakhir)</h3>
+    <canvas id="monthlyChart" style="max-height:300px"></canvas>
+</div>
+
+<div class="card">
+    <h3>📊 Perbandingan Harian vs Bulanan</h3>
+    <canvas id="comparisonChart" style="max-height:300px"></canvas>
 </div>
 
 <script>
-const labels = <?= json_encode(array_column($trend,'tgl')) ?>;
-const data = <?= json_encode(array_column($trend,'total')) ?>;
+// Daily Chart
+const dailyLabels = <?= json_encode(array_map(function($d) { return date('d/m', strtotime($d['tgl'])); }, $daily_movement)) ?>;
+const dailyData = <?= json_encode(array_column($daily_movement, 'total')) ?>;
 
-new Chart(document.getElementById('trendChart'), {
+new Chart(document.getElementById('dailyChart'), {
     type: 'line',
     data: {
-        labels: labels,
+        labels: dailyLabels.reverse(),
         datasets: [{
-            label: 'Donasi (Rp)',
-            data: data,
+            label: 'Donasi Harian (Rp)',
+            data: dailyData.reverse(),
             borderColor: '#3498db',
             backgroundColor: 'rgba(52, 152, 219, 0.1)',
             borderWidth: 2,
@@ -186,7 +269,72 @@ new Chart(document.getElementById('trendChart'), {
                 beginAtZero: true,
                 ticks: {
                     callback: function(value) {
-                        return 'Rp ' + value.toLocaleString('id-ID');
+                        return 'Rp ' + (value/1000000).toFixed(1) + 'M';
+                    }
+                }
+            }
+        }
+    }
+});
+
+// Monthly Chart
+const monthlyLabels = <?= json_encode(array_column($monthly_donation, 'bulan_label')) ?>;
+const monthlyData = <?= json_encode(array_column($monthly_donation, 'total')) ?>;
+
+new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+        labels: monthlyLabels.reverse(),
+        datasets: [{
+            label: 'Donasi Bulanan (Rp)',
+            data: monthlyData.reverse(),
+            backgroundColor: 'rgba(46, 204, 113, 0.6)',
+            borderColor: '#27ae60',
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return 'Rp ' + (value/1000000).toFixed(1) + 'M';
+                    }
+                }
+            }
+        }
+    }
+});
+
+// Comparison Chart
+const comparisonLabels = ['Harian (Rata-rata)', 'Bulanan (Rata-rata)'];
+const avgDaily = <?= count($daily_movement) > 0 ? array_sum(array_column($daily_movement, 'total')) / count($daily_movement) : 0 ?>;
+const avgMonthly = <?= count($monthly_donation) > 0 ? array_sum(array_column($monthly_donation, 'total')) / count($monthly_donation) : 0 ?>;
+
+new Chart(document.getElementById('comparisonChart'), {
+    type: 'bar',
+    data: {
+        labels: comparisonLabels,
+        datasets: [{
+            label: 'Rata-rata Donasi',
+            data: [avgDaily, avgMonthly],
+            backgroundColor: ['rgba(52, 152, 219, 0.6)', 'rgba(46, 204, 113, 0.6)'],
+            borderColor: ['#3498db', '#27ae60'],
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return 'Rp ' + (value/1000000).toFixed(1) + 'M';
                     }
                 }
             }

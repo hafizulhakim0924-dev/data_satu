@@ -22,13 +22,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 try {
-    $donatur_list = $pdo->query("SELECT d.*, 
-        k.nama_klasifikasi, k.warna, k.indikator, k.kode as kode_klasifikasi,
-        (SELECT SUM(jumlah) FROM csr_donations WHERE donatur_id=d.id) as total_donasi,
-        (SELECT COUNT(*) FROM csr_donations WHERE donatur_id=d.id) as jumlah_donasi
-        FROM donatur d 
-        LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
-        ORDER BY d.nama")->fetchAll();
+    // Cek apakah kolom donatur_id ada di tabel csr_donations
+    $check_column = $pdo->query("SHOW COLUMNS FROM csr_donations LIKE 'donatur_id'")->fetch();
+    
+    if ($check_column) {
+        // Kolom ada, gunakan query normal
+        $donatur_list = $pdo->query("SELECT d.*, 
+            k.nama_klasifikasi, k.warna, k.indikator, k.kode as kode_klasifikasi,
+            (SELECT SUM(jumlah) FROM csr_donations WHERE donatur_id=d.id) as total_donasi,
+            (SELECT COUNT(*) FROM csr_donations WHERE donatur_id=d.id) as jumlah_donasi
+            FROM donatur d 
+            LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
+            ORDER BY d.nama")->fetchAll();
+    } else {
+        // Kolom belum ada, gunakan query tanpa subquery donatur_id
+        $donatur_list = $pdo->query("SELECT d.*, 
+            k.nama_klasifikasi, k.warna, k.indikator, k.kode as kode_klasifikasi,
+            0 as total_donasi,
+            0 as jumlah_donasi
+            FROM donatur d 
+            LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
+            ORDER BY d.nama")->fetchAll();
+        $error_msg = "Kolom 'donatur_id' belum ada di tabel csr_donations. Jalankan file database_schema.sql untuk memperbaiki struktur tabel.";
+    }
 } catch(PDOException $e) {
     $donatur_list = [];
     $error_msg = "Error: " . $e->getMessage();
@@ -110,13 +126,19 @@ table tr:hover { background:#f5f5f5 }
     <div class="alert" style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb">
         <strong>⚠️ Error Database:</strong> <?= htmlspecialchars($error_msg) ?>
         <br><small>Pastikan tabel 'donatur' sudah dibuat. Jalankan file database_schema.sql terlebih dahulu.</small>
+        <?php if(strpos($error_msg, 'donatur_id') !== false): ?>
+        <br><br><strong>Solusi:</strong> Jalankan file <code>fix_csr_donations_donatur_id.sql</code> untuk menambahkan kolom 'donatur_id' ke tabel csr_donations.
+        <?php endif; ?>
     </div>
     <?php endif; ?>
     
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Donatur</h2>
-            <button class="btn" onclick="document.getElementById('modalDonatur').style.display='block'">+ Tambah Donatur</button>
+            <div>
+                <a href="export_excel.php?type=donatur" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalDonatur').style.display='block'">+ Tambah Donatur</button>
+            </div>
         </div>
         
         <div class="grid" style="margin-bottom:20px">

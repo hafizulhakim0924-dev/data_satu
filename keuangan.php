@@ -120,7 +120,10 @@ table tr:hover { background:#f5f5f5 }
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Pemasukan</h2>
-            <button class="btn" onclick="document.getElementById('modalPemasukan').style.display='block'">+ Tambah Pemasukan</button>
+            <div>
+                <a href="export_excel.php?type=keuangan&subtype=pemasukan" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalPemasukan').style.display='block'">+ Tambah Pemasukan</button>
+            </div>
         </div>
         <?php
         $pemasukan_list = $pdo->query("SELECT * FROM pemasukan ORDER BY tanggal DESC LIMIT 100")->fetchAll();
@@ -212,7 +215,10 @@ table tr:hover { background:#f5f5f5 }
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
             <h2>Data Pengeluaran</h2>
-            <button class="btn" onclick="document.getElementById('modalPengeluaran').style.display='block'">+ Tambah Pengeluaran</button>
+            <div>
+                <a href="export_excel.php?type=keuangan&subtype=pengeluaran" class="btn btn-success">📥 Export Excel</a>
+                <button class="btn" onclick="document.getElementById('modalPengeluaran').style.display='block'">+ Tambah Pengeluaran</button>
+            </div>
         </div>
         <?php
         $pengeluaran_list = $pdo->query("SELECT * FROM pengeluaran ORDER BY tanggal DESC LIMIT 100")->fetchAll();
