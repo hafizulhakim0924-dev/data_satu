@@ -81,6 +81,7 @@ if ($edit_id) {
 <html>
 <head>
 <title>Program CSR - Rangkiang Peduli Negeri</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
 * { margin:0; padding:0; box-sizing:border-box }
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f4f6f8 }
@@ -108,7 +109,7 @@ table tr:hover { background:#f5f5f5 }
 .form-group textarea { min-height:100px; resize:vertical }
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px }
 .modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5) }
-.modal-content { background:#fff; margin:5% auto; padding:20px; border-radius:8px; width:90%; max-width:700px; max-height:90vh; overflow-y:auto }
+.modal-content { background:#fff; margin:5% auto; padding:20px; border-radius:8px; width:90%; max-width:900px; max-height:90vh; overflow-y:auto }
 .close { float:right; font-size:28px; font-weight:bold; cursor:pointer }
 .alert { padding:15px; margin-bottom:20px; border-radius:5px }
 .alert-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb }
@@ -323,8 +324,6 @@ table tr:hover { background:#f5f5f5 }
         </div>
     </div>
     
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script>
     // Initialize map centered on West Sumatra (Padang)
     const map = L.map('map').setView([-0.94924, 100.35427], 8);
@@ -494,17 +493,20 @@ table tr:hover { background:#f5f5f5 }
                 </div>
                 <div class="form-group">
                     <label>Lokasi</label>
-                    <input type="text" name="lokasi" value="<?= $edit_program['lokasi'] ?? '' ?>" placeholder="Alamat/lokasi program">
+                    <input type="text" name="lokasi" id="lokasi_input" value="<?= $edit_program['lokasi'] ?? '' ?>" placeholder="Alamat/lokasi program">
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Latitude (Opsional)</label>
-                        <input type="number" step="any" name="latitude" value="<?= $edit_program['latitude'] ?? '' ?>" placeholder="-0.94924">
-                        <small style="color:#666">Gunakan tab Peta untuk memilih koordinat</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Longitude (Opsional)</label>
-                        <input type="number" step="any" name="longitude" value="<?= $edit_program['longitude'] ?? '' ?>" placeholder="100.35427">
+                <div class="form-group">
+                    <label>Pilih Lokasi di Peta (Klik pada peta untuk memilih koordinat)</label>
+                    <div id="mapForm" style="height:400px; width:100%; border:2px solid #ddd; border-radius:5px; margin-top:10px"></div>
+                    <small style="color:#666; display:block; margin-top:5px">
+                        💡 Klik pada peta Sumatera Barat untuk memilih koordinat lokasi program
+                    </small>
+                    <input type="hidden" name="latitude" id="latitude_input" value="<?= $edit_program['latitude'] ?? '' ?>">
+                    <input type="hidden" name="longitude" id="longitude_input" value="<?= $edit_program['longitude'] ?? '' ?>">
+                    <div id="coordinate_display" style="margin-top:10px; padding:10px; background:#f8f9fa; border-radius:5px; display:none">
+                        <strong>Koordinat Terpilih:</strong> 
+                        <span id="coord_text">-</span>
+                        <button type="button" onclick="clearCoordinates()" class="btn btn-warning btn-sm" style="margin-left:10px">Hapus Koordinat</button>
                     </div>
                 </div>
                 <div class="form-row">
@@ -546,7 +548,131 @@ table tr:hover { background:#f5f5f5 }
     
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// Initialize map for form (centered on West Sumatra)
+let mapForm = null;
+let markerForm = null;
+
+function initMapForm() {
+    if (mapForm) {
+        mapForm.invalidateSize(); // Refresh map size
+        return; // Already initialized
+    }
+    
+    if (typeof L === 'undefined') {
+        console.error('Leaflet library not loaded');
+        return;
+    }
+    
+    const mapDiv = document.getElementById('mapForm');
+    if (!mapDiv) {
+        console.error('Map div not found');
+        return;
+    }
+    
+    try {
+        mapForm = L.map('mapForm').setView([-0.94924, 100.35427], 8);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{s}/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18
+        }).addTo(mapForm);
+        
+        // Load existing coordinates if editing
+        const latInput = document.getElementById('latitude_input');
+        const lngInput = document.getElementById('longitude_input');
+        
+        if (latInput && lngInput) {
+            const lat = latInput.value;
+            const lng = lngInput.value;
+            
+            if (lat && lng) {
+                addMarkerToForm(parseFloat(lat), parseFloat(lng));
+                mapForm.setView([parseFloat(lat), parseFloat(lng)], 13);
+            }
+        }
+        
+        // Add click event to map
+        mapForm.on('click', function(e) {
+            addMarkerToForm(e.latlng.lat, e.latlng.lng);
+        });
+    } catch(e) {
+        console.error('Error initializing map:', e);
+    }
+}
+
+function addMarkerToForm(lat, lng) {
+    // Remove existing marker
+    if (markerForm) {
+        mapForm.removeLayer(markerForm);
+    }
+    
+    // Add new marker
+    markerForm = L.marker([lat, lng], {
+        draggable: true
+    }).addTo(mapForm);
+    
+    // Update form fields
+    document.getElementById('latitude_input').value = lat;
+    document.getElementById('longitude_input').value = lng;
+    document.getElementById('coord_text').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
+    document.getElementById('coordinate_display').style.display = 'block';
+    
+    // Update marker position on drag
+    markerForm.on('dragend', function() {
+        const pos = markerForm.getLatLng();
+        document.getElementById('latitude_input').value = pos.lat;
+        document.getElementById('longitude_input').value = pos.lng;
+        document.getElementById('coord_text').textContent = pos.lat.toFixed(6) + ', ' + pos.lng.toFixed(6);
+    });
+    
+    // Center map on marker
+    mapForm.setView([lat, lng], 13);
+}
+
+function clearCoordinates() {
+    if (markerForm) {
+        mapForm.removeLayer(markerForm);
+        markerForm = null;
+    }
+    document.getElementById('latitude_input').value = '';
+    document.getElementById('longitude_input').value = '';
+    document.getElementById('coordinate_display').style.display = 'none';
+    mapForm.setView([-0.94924, 100.35427], 8);
+}
+
+// Initialize map when modal opens
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('modalProgram');
+    if (modal) {
+        // Use MutationObserver to detect when modal is shown
+        const observer = new MutationObserver(function(mutations) {
+            if (modal.style.display === 'block') {
+                setTimeout(initMapForm, 500); // Wait for modal animation
+            }
+        });
+        
+        observer.observe(modal, {
+            attributes: true,
+            attributeFilter: ['style']
+        });
+        
+        // Also check if modal is already open (for edit mode)
+        if (modal.style.display === 'block') {
+            setTimeout(initMapForm, 500);
+        }
+    }
+    
+    // Override button clicks to initialize map
+    document.addEventListener('click', function(e) {
+        if (e.target && (e.target.onclick && e.target.onclick.toString().includes('modalProgram') || 
+            e.target.closest('[onclick*="modalProgram"]'))) {
+            setTimeout(initMapForm, 500);
+        }
+    });
+});
+
 window.onclick = function(event) {
     if (event.target.classList.contains('modal')) {
         event.target.style.display = 'none';
