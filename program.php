@@ -156,7 +156,7 @@ table tr:hover { background:#f5f5f5 }
             <h2>Data Program</h2>
             <div>
                 <a href="export_excel.php?type=program" class="btn btn-success">📥 Export Excel</a>
-                <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program</button>
+                <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'; setTimeout(function(){ if(typeof initMapForm === 'function') initMapForm(); }, 500);">+ Tambah Program</button>
             </div>
         </div>
         
@@ -181,7 +181,7 @@ table tr:hover { background:#f5f5f5 }
                         <div style="font-size:48px; margin-bottom:10px">📋</div>
                         <div>Belum ada data program</div>
                         <div style="margin-top:10px">
-                            <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'">+ Tambah Program Pertama</button>
+                            <button class="btn" onclick="document.getElementById('modalProgram').style.display='block'; setTimeout(function(){ if(typeof initMapForm === 'function') initMapForm(); }, 500);">+ Tambah Program Pertama</button>
                         </div>
                     </td>
                 </tr>
@@ -497,7 +497,11 @@ table tr:hover { background:#f5f5f5 }
                 </div>
                 <div class="form-group">
                     <label>Pilih Lokasi di Peta (Klik pada peta untuk memilih koordinat)</label>
-                    <div id="mapForm" style="height:400px; width:100%; border:2px solid #ddd; border-radius:5px; margin-top:10px"></div>
+                    <div id="mapForm" style="height:400px; width:100%; border:2px solid #ddd; border-radius:5px; margin-top:10px; background:#f0f0f0; position:relative">
+                        <div id="mapLoading" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center; color:#666">
+                            <div>Memuat peta...</div>
+                        </div>
+                    </div>
                     <small style="color:#666; display:block; margin-top:5px">
                         💡 Klik pada peta Sumatera Barat untuk memilih koordinat lokasi program
                     </small>
@@ -553,27 +557,68 @@ table tr:hover { background:#f5f5f5 }
 // Initialize map for form (centered on West Sumatra)
 let mapForm = null;
 let markerForm = null;
+let mapInitialized = false;
 
 function initMapForm() {
-    if (mapForm) {
-        mapForm.invalidateSize(); // Refresh map size
-        return; // Already initialized
-    }
-    
+    // Check if Leaflet is loaded
     if (typeof L === 'undefined') {
-        console.error('Leaflet library not loaded');
+        console.error('Leaflet library not loaded, retrying...');
+        // Try to load Leaflet manually if not loaded
+        if (!document.querySelector('script[src*="leaflet"]')) {
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            script.onload = function() {
+                setTimeout(initMapForm, 200);
+            };
+            document.head.appendChild(script);
+        } else {
+            setTimeout(initMapForm, 500);
+        }
         return;
     }
     
+    // Check if map div exists
     const mapDiv = document.getElementById('mapForm');
     if (!mapDiv) {
         console.error('Map div not found');
         return;
     }
     
+    // Check if div is visible (with multiple checks)
+    const isVisible = mapDiv.offsetParent !== null || 
+                     mapDiv.style.display !== 'none' || 
+                     window.getComputedStyle(mapDiv).display !== 'none';
+    
+    if (!isVisible) {
+        // Div is hidden, wait a bit and retry
+        setTimeout(initMapForm, 300);
+        return;
+    }
+    
+    // Ensure div has dimensions
+    if (mapDiv.offsetWidth === 0 || mapDiv.offsetHeight === 0) {
+        setTimeout(initMapForm, 300);
+        return;
+    }
+    
+    // If map already exists, just refresh it
+    if (mapForm) {
+        try {
+            mapForm.invalidateSize();
+            return;
+        } catch(e) {
+            // If error, reinitialize
+            mapForm = null;
+        }
+    }
+    
     try {
-        mapForm = L.map('mapForm').setView([-0.94924, 100.35427], 8);
+        // Initialize map
+        mapForm = L.map('mapForm', {
+            zoomControl: true
+        }).setView([-0.94924, 100.35427], 8);
         
+        // Add tile layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{s}/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18
@@ -587,9 +632,11 @@ function initMapForm() {
             const lat = latInput.value;
             const lng = lngInput.value;
             
-            if (lat && lng) {
-                addMarkerToForm(parseFloat(lat), parseFloat(lng));
-                mapForm.setView([parseFloat(lat), parseFloat(lng)], 13);
+            if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
+                setTimeout(function() {
+                    addMarkerToForm(parseFloat(lat), parseFloat(lng));
+                    mapForm.setView([parseFloat(lat), parseFloat(lng)], 13);
+                }, 100);
             }
         }
         
@@ -597,8 +644,21 @@ function initMapForm() {
         mapForm.on('click', function(e) {
             addMarkerToForm(e.latlng.lat, e.latlng.lng);
         });
+        
+        mapInitialized = true;
+        console.log('Map initialized successfully');
+        
+        // Hide loading message
+        const loadingDiv = document.getElementById('mapLoading');
+        if (loadingDiv) {
+            loadingDiv.style.display = 'none';
+        }
     } catch(e) {
         console.error('Error initializing map:', e);
+        const loadingDiv = document.getElementById('mapLoading');
+        if (loadingDiv) {
+            loadingDiv.innerHTML = '<div style="color:#e74c3c">Error memuat peta. Silakan refresh halaman.</div>';
+        }
     }
 }
 
@@ -642,35 +702,68 @@ function clearCoordinates() {
     mapForm.setView([-0.94924, 100.35427], 8);
 }
 
+// Function to open modal and initialize map
+function openProgramModal() {
+    const modal = document.getElementById('modalProgram');
+    if (modal) {
+        modal.style.display = 'block';
+        // Wait for modal to be visible, then initialize map
+        setTimeout(function() {
+            initMapForm();
+        }, 300);
+    }
+}
+
 // Initialize map when modal opens
 document.addEventListener('DOMContentLoaded', function() {
     const modal = document.getElementById('modalProgram');
     if (modal) {
         // Use MutationObserver to detect when modal is shown
         const observer = new MutationObserver(function(mutations) {
-            if (modal.style.display === 'block') {
-                setTimeout(initMapForm, 500); // Wait for modal animation
-            }
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    if (modal.style.display === 'block' || modal.style.display === '') {
+                        setTimeout(function() {
+                            initMapForm();
+                        }, 500);
+                    }
+                }
+            });
         });
         
         observer.observe(modal, {
             attributes: true,
-            attributeFilter: ['style']
+            attributeFilter: ['style', 'class']
         });
         
         // Also check if modal is already open (for edit mode)
-        if (modal.style.display === 'block') {
-            setTimeout(initMapForm, 500);
+        if (modal.style.display === 'block' || modal.style.display === '') {
+            setTimeout(function() {
+                initMapForm();
+            }, 500);
         }
     }
     
     // Override button clicks to initialize map
     document.addEventListener('click', function(e) {
-        if (e.target && (e.target.onclick && e.target.onclick.toString().includes('modalProgram') || 
-            e.target.closest('[onclick*="modalProgram"]'))) {
-            setTimeout(initMapForm, 500);
+        const target = e.target;
+        if (target && (target.onclick && target.onclick.toString().includes('modalProgram') || 
+            target.closest('[onclick*="modalProgram"]') || 
+            target.id === 'modalProgram' || 
+            target.closest('#modalProgram'))) {
+            setTimeout(function() {
+                initMapForm();
+            }, 500);
         }
     });
+    
+    // Also try to initialize after a delay (fallback)
+    setTimeout(function() {
+        const mapDiv = document.getElementById('mapForm');
+        if (mapDiv && mapDiv.offsetParent !== null && !mapInitialized) {
+            initMapForm();
+        }
+    }, 1000);
 });
 
 window.onclick = function(event) {
