@@ -10,8 +10,7 @@ if (!ob_get_level()) {
     @ob_start();
 }
 
-// Set custom error handler to capture all errors
-$captured_errors = [];
+// Set custom error handler to capture all errors - using GLOBALS to avoid closure issues
 if (!isset($GLOBALS['program_captured_errors'])) {
     $GLOBALS['program_captured_errors'] = [];
 }
@@ -471,8 +470,8 @@ table tr:hover { background:#f5f5f5 }
     $all_errors = [];
     
     // Add captured errors from error handler
-    if (!empty($captured_errors)) {
-        $all_errors = array_merge($all_errors, $captured_errors);
+    if (isset($GLOBALS['program_captured_errors']) && !empty($GLOBALS['program_captured_errors'])) {
+        $all_errors = array_merge($all_errors, $GLOBALS['program_captured_errors']);
     }
     
     // Get any output buffer errors (only if buffer is active)
