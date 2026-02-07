@@ -226,97 +226,116 @@ table tr:hover { background:#f5f5f5 }
         <div class="modal-content">
             <span class="close" onclick="document.getElementById('modalDonatur').style.display='none'; window.location.href='donatur.php'">&times;</span>
             <h2><?= $edit_donatur ? 'Edit Donatur' : 'Tambah Donatur' ?></h2>
-            <form method="POST">
+            <form method="POST" id="formDonatur">
                 <input type="hidden" name="action" value="<?= $edit_donatur ? 'update_donatur' : 'add_donatur' ?>">
                 <?php if($edit_donatur): ?>
                 <input type="hidden" name="id" value="<?= $edit_donatur['id'] ?>">
                 <?php endif; ?>
-                <div class="form-group">
-                    <label>Nama *</label>
-                    <input type="text" name="nama" value="<?= $edit_donatur['nama'] ?? '' ?>" required>
-                </div>
-                <div class="form-row">
+                
+                <div style="border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px">
+                    <h3 style="color:#2c3e50; margin-bottom:15px">📋 Informasi Dasar</h3>
                     <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" name="email" value="<?= $edit_donatur['email'] ?? '' ?>">
+                        <label>Nama Donatur *</label>
+                        <input type="text" name="nama" value="<?= $edit_donatur['nama'] ?? '' ?>" required placeholder="Nama lengkap donatur">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Tipe Donatur *</label>
+                            <select name="tipe" required id="tipe_donatur" onchange="togglePerusahaanFields()">
+                                <option value="individu" <?= ($edit_donatur['tipe'] ?? '') == 'individu' ? 'selected' : '' ?>>👤 Individu</option>
+                                <option value="perusahaan" <?= ($edit_donatur['tipe'] ?? '') == 'perusahaan' ? 'selected' : '' ?>>🏢 Perusahaan</option>
+                                <option value="yayasan" <?= ($edit_donatur['tipe'] ?? '') == 'yayasan' ? 'selected' : '' ?>>🏛️ Yayasan</option>
+                                <option value="lembaga" <?= ($edit_donatur['tipe'] ?? '') == 'lembaga' ? 'selected' : '' ?>>🏛️ Lembaga</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Kategori Donasi</label>
+                            <select name="kategori">
+                                <option value="rutin" <?= ($edit_donatur['kategori'] ?? '') == 'rutin' ? 'selected' : '' ?>>🔄 Rutin</option>
+                                <option value="sporadis" <?= ($edit_donatur['kategori'] ?? '') == 'sporadis' ? 'selected' : '' ?>>📅 Sporadis</option>
+                                <option value="corporate" <?= ($edit_donatur['kategori'] ?? '') == 'corporate' ? 'selected' : '' ?>>💼 Corporate</option>
+                                <option value="zakat" <?= ($edit_donatur['kategori'] ?? '') == 'zakat' ? 'selected' : '' ?>>🕌 Zakat</option>
+                                <option value="infaq" <?= ($edit_donatur['kategori'] ?? '') == 'infaq' ? 'selected' : '' ?>>💝 Infaq</option>
+                                <option value="sedekah" <?= ($edit_donatur['kategori'] ?? '') == 'sedekah' ? 'selected' : '' ?>>🤲 Sedekah</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label>No HP</label>
-                        <input type="text" name="no_hp" value="<?= $edit_donatur['no_hp'] ?? '' ?>">
+                        <label>Klasifikasi Donatur</label>
+                        <select name="klasifikasi_id">
+                            <option value="">Pilih Klasifikasi (Opsional)</option>
+                            <?php foreach($klasifikasi_list as $k): ?>
+                            <option value="<?= $k['id'] ?>" 
+                                <?= ($edit_donatur['klasifikasi_id'] ?? '') == $k['id'] ? 'selected' : '' ?>
+                                style="background:<?= htmlspecialchars($k['warna']) ?>20">
+                                <?= htmlspecialchars($k['indikator'] ?? '') ?> <?= htmlspecialchars($k['nama_klasifikasi']) ?>
+                                <?php if($k['minimal_donasi']): ?>
+                                (Min: <?= formatRupiah($k['minimal_donasi']) ?>)
+                                <?php endif; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small style="color:#666">Atau <a href="klasifikasi_donatur.php" target="_blank">kelola klasifikasi</a></small>
                     </div>
                 </div>
-                <div class="form-row">
+                
+                <div style="border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px">
+                    <h3 style="color:#2c3e50; margin-bottom:15px">📞 Kontak</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" name="email" value="<?= $edit_donatur['email'] ?? '' ?>" placeholder="email@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>No HP / WhatsApp</label>
+                            <input type="text" name="no_hp" value="<?= $edit_donatur['no_hp'] ?? '' ?>" placeholder="081234567890">
+                        </div>
+                    </div>
                     <div class="form-group">
-                        <label>Tipe *</label>
-                        <select name="tipe" required>
-                            <option value="individu" <?= ($edit_donatur['tipe'] ?? '') == 'individu' ? 'selected' : '' ?>>Individu</option>
-                            <option value="perusahaan" <?= ($edit_donatur['tipe'] ?? '') == 'perusahaan' ? 'selected' : '' ?>>Perusahaan</option>
-                            <option value="yayasan" <?= ($edit_donatur['tipe'] ?? '') == 'yayasan' ? 'selected' : '' ?>>Yayasan</option>
-                            <option value="lembaga" <?= ($edit_donatur['tipe'] ?? '') == 'lembaga' ? 'selected' : '' ?>>Lembaga</option>
+                        <label>Alamat Lengkap</label>
+                        <textarea name="alamat" rows="3" placeholder="Alamat lengkap donatur"><?= $edit_donatur['alamat'] ?? '' ?></textarea>
+                    </div>
+                </div>
+                
+                <div id="perusahaan_fields" style="border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px; <?= ($edit_donatur['tipe'] ?? 'individu') == 'individu' ? 'display:none' : '' ?>">
+                    <h3 style="color:#2c3e50; margin-bottom:15px">🏢 Informasi Perusahaan/Yayasan/Lembaga</h3>
+                    <div class="form-group">
+                        <label>Nama Perusahaan/Yayasan/Lembaga</label>
+                        <input type="text" name="nama_perusahaan" id="nama_perusahaan_field" value="<?= $edit_donatur['nama_perusahaan'] ?? '' ?>" placeholder="Nama perusahaan/yayasan/lembaga">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>NPWP</label>
+                            <input type="text" name="npwp" id="npwp_field" value="<?= $edit_donatur['npwp'] ?? '' ?>" placeholder="12.345.678.9-012.345">
+                        </div>
+                        <div class="form-group">
+                            <label>PIC (Person In Charge)</label>
+                            <input type="text" name="pic" id="pic_field" value="<?= $edit_donatur['pic'] ?? '' ?>" placeholder="Nama penanggung jawab">
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px">
+                    <h3 style="color:#2c3e50; margin-bottom:15px">📝 Informasi Tambahan</h3>
+                    <?php if($edit_donatur): ?>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="status">
+                            <option value="active" <?= $edit_donatur['status'] == 'active' ? 'selected' : '' ?>>✅ Active</option>
+                            <option value="inactive" <?= $edit_donatur['status'] == 'inactive' ? 'selected' : '' ?>>❌ Inactive</option>
                         </select>
                     </div>
+                    <?php endif; ?>
                     <div class="form-group">
-                        <label>Kategori</label>
-                        <select name="kategori">
-                            <option value="rutin" <?= ($edit_donatur['kategori'] ?? '') == 'rutin' ? 'selected' : '' ?>>Rutin</option>
-                            <option value="sporadis" <?= ($edit_donatur['kategori'] ?? '') == 'sporadis' ? 'selected' : '' ?>>Sporadis</option>
-                            <option value="corporate" <?= ($edit_donatur['kategori'] ?? '') == 'corporate' ? 'selected' : '' ?>>Corporate</option>
-                            <option value="zakat" <?= ($edit_donatur['kategori'] ?? '') == 'zakat' ? 'selected' : '' ?>>Zakat</option>
-                            <option value="infaq" <?= ($edit_donatur['kategori'] ?? '') == 'infaq' ? 'selected' : '' ?>>Infaq</option>
-                            <option value="sedekah" <?= ($edit_donatur['kategori'] ?? '') == 'sedekah' ? 'selected' : '' ?>>Sedekah</option>
-                        </select>
+                        <label>Catatan</label>
+                        <textarea name="catatan" rows="4" placeholder="Catatan tambahan tentang donatur"><?= $edit_donatur['catatan'] ?? '' ?></textarea>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>Klasifikasi Donatur</label>
-                    <select name="klasifikasi_id">
-                        <option value="">Pilih Klasifikasi (Opsional)</option>
-                        <?php foreach($klasifikasi_list as $k): ?>
-                        <option value="<?= $k['id'] ?>" 
-                            <?= ($edit_donatur['klasifikasi_id'] ?? '') == $k['id'] ? 'selected' : '' ?>
-                            style="background:<?= htmlspecialchars($k['warna']) ?>20">
-                            <?= htmlspecialchars($k['indikator'] ?? '') ?> <?= htmlspecialchars($k['nama_klasifikasi']) ?>
-                            <?php if($k['minimal_donasi']): ?>
-                            (Min: <?= formatRupiah($k['minimal_donasi']) ?>)
-                            <?php endif; ?>
-                        </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <small style="color:#666">Atau <a href="klasifikasi_donatur.php" target="_blank">kelola klasifikasi</a></small>
+                
+                <div style="text-align:right; margin-top:20px">
+                    <button type="button" class="btn" onclick="document.getElementById('modalDonatur').style.display='none'; window.location.href='donatur.php'">Batal</button>
+                    <button type="submit" class="btn btn-success">💾 Simpan</button>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Nama Perusahaan (jika perusahaan/yayasan)</label>
-                        <input type="text" name="nama_perusahaan" value="<?= $edit_donatur['nama_perusahaan'] ?? '' ?>">
-                    </div>
-                    <div class="form-group">
-                        <label>NPWP</label>
-                        <input type="text" name="npwp" value="<?= $edit_donatur['npwp'] ?? '' ?>">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>PIC (Person In Charge)</label>
-                    <input type="text" name="pic" value="<?= $edit_donatur['pic'] ?? '' ?>" placeholder="Nama penanggung jawab">
-                </div>
-                <div class="form-group">
-                    <label>Alamat</label>
-                    <textarea name="alamat"><?= $edit_donatur['alamat'] ?? '' ?></textarea>
-                </div>
-                <?php if($edit_donatur): ?>
-                <div class="form-group">
-                    <label>Status</label>
-                    <select name="status">
-                        <option value="active" <?= $edit_donatur['status'] == 'active' ? 'selected' : '' ?>>Active</option>
-                        <option value="inactive" <?= $edit_donatur['status'] == 'inactive' ? 'selected' : '' ?>>Inactive</option>
-                    </select>
-                </div>
-                <?php endif; ?>
-                <div class="form-group">
-                    <label>Catatan</label>
-                    <textarea name="catatan"><?= $edit_donatur['catatan'] ?? '' ?></textarea>
-                </div>
-                <button type="submit" class="btn btn-success">Simpan</button>
-                <button type="button" class="btn" onclick="document.getElementById('modalDonatur').style.display='none'; window.location.href='donatur.php'">Batal</button>
             </form>
         </div>
     </div>
@@ -324,6 +343,35 @@ table tr:hover { background:#f5f5f5 }
 </div>
 
 <script>
+function togglePerusahaanFields() {
+    const tipe = document.getElementById('tipe_donatur').value;
+    const perusahaanFields = document.getElementById('perusahaan_fields');
+    const namaPerusahaan = document.getElementById('nama_perusahaan_field');
+    const npwp = document.getElementById('npwp_field');
+    const pic = document.getElementById('pic_field');
+    
+    if (tipe === 'perusahaan' || tipe === 'yayasan' || tipe === 'lembaga') {
+        perusahaanFields.style.display = 'block';
+        if (tipe === 'perusahaan') {
+            namaPerusahaan.placeholder = 'Nama Perusahaan';
+        } else if (tipe === 'yayasan') {
+            namaPerusahaan.placeholder = 'Nama Yayasan';
+        } else {
+            namaPerusahaan.placeholder = 'Nama Lembaga';
+        }
+    } else {
+        perusahaanFields.style.display = 'none';
+        namaPerusahaan.value = '';
+        npwp.value = '';
+        pic.value = '';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    togglePerusahaanFields();
+});
+
 window.onclick = function(event) {
     if (event.target.classList.contains('modal')) {
         event.target.style.display = 'none';
