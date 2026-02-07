@@ -13,6 +13,15 @@ if (!ob_get_level()) {
 $error_msg = null;
 $php_errors = [];
 
+// Initialize all variables to prevent undefined errors
+$lokasi_list = [];
+$penyaluran_list = [];
+$dampak_list = [];
+$stats_lokasi = ['total_lokasi' => 0, 'total_warga_all' => 0, 'total_warga_miskin_all' => 0, 'total_warga_terdampak_all' => 0, 'sangat_tinggi' => 0, 'tinggi' => 0, 'sedang' => 0, 'rendah' => 0];
+$lokasi_by_tipe = [];
+$penyaluran_stats = [];
+$dampak_stats = [];
+
 require_once 'config.php';
 
 // Handle Actions
@@ -1540,24 +1549,31 @@ table tr:hover { background:#f5f5f5 }
     <?php if(isset($_GET['tab']) && $_GET['tab'] == 'penyaluran'): ?>
     <?php
     // Get penyaluran data
+    $penyaluran_list = [];
+    $penyaluran_stats = [];
+    $penyaluran_by_program = [];
+    $penyaluran_by_month = [];
+    
     try {
-        $penyaluran_list = $pdo->query("
-            SELECT pp.*, p.nama_program, p.kategori, p.status as program_status
-            FROM program_penyaluran pp
-            LEFT JOIN program_csr p ON pp.program_id = p.id
-            ORDER BY pp.tanggal_penyaluran DESC
-            LIMIT 100
-        ")->fetchAll();
-        
-        // Get statistics
-        $penyaluran_stats = $pdo->query("
-            SELECT 
-                COUNT(*) as total_penyaluran,
-                SUM(jumlah_penyaluran) as total_nominal,
-                COUNT(DISTINCT program_id) as total_program,
-                AVG(jumlah_penyaluran) as rata_rata
-            FROM program_penyaluran
-        ")->fetch();
+        $table_check = $pdo->query("SHOW TABLES LIKE 'program_penyaluran'")->fetch();
+        if ($table_check) {
+            $penyaluran_list = $pdo->query("
+                SELECT pp.*, p.nama_program, p.kategori, p.status as program_status
+                FROM program_penyaluran pp
+                LEFT JOIN program_csr p ON pp.program_id = p.id
+                ORDER BY pp.tanggal_penyaluran DESC
+                LIMIT 100
+            ")->fetchAll();
+            
+            // Get statistics
+            $penyaluran_stats = $pdo->query("
+                SELECT 
+                    COUNT(*) as total_penyaluran,
+                    COALESCE(SUM(jumlah_penyaluran), 0) as total_nominal,
+                    COUNT(DISTINCT program_id) as total_program,
+                    COALESCE(AVG(jumlah_penyaluran), 0) as rata_rata
+                FROM program_penyaluran
+            ")->fetch();
         
         // Get penyaluran by program
         $penyaluran_by_program = $pdo->query("
@@ -1747,6 +1763,8 @@ table tr:hover { background:#f5f5f5 }
     <?php if(isset($_GET['tab']) && $_GET['tab'] == 'dampak'): ?>
     <?php
     // Get dampak data
+    $dampak_list = [];
+    $dampak_stats = [];
     try {
         $dampak_list = $pdo->query("
             SELECT pd.*, p.nama_program, p.kategori
