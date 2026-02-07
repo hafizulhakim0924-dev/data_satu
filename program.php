@@ -78,6 +78,100 @@ if ($edit_id) {
     $edit_program->execute([$edit_id]);
     $edit_program = $edit_program->fetch();
 }
+
+// Handle View Detail Program
+$view_id = $_GET['view'] ?? null;
+$view_program = null;
+$view_penyaluran = [];
+$view_dampak = [];
+$view_stats = [];
+
+if ($view_id) {
+    try {
+        // Get program detail
+        $view_program = $pdo->prepare("
+            SELECT p.*, 
+                u.nama_lengkap as pic_name,
+                (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi,
+                (SELECT SUM(jumlah_penyaluran) FROM program_penyaluran WHERE program_id=p.id) as total_penyaluran,
+                (SELECT COUNT(*) FROM program_penyaluran WHERE program_id=p.id) as jumlah_penyaluran,
+                (SELECT COUNT(*) FROM program_dampak WHERE program_id=p.id) as jumlah_dampak
+            FROM program_csr p 
+            LEFT JOIN users u ON p.pic=u.id 
+            WHERE p.id=?
+        ");
+        $view_program->execute([$view_id]);
+        $view_program = $view_program->fetch();
+        
+        if ($view_program) {
+            // Get penyaluran data
+            $view_penyaluran = $pdo->prepare("
+                SELECT * FROM program_penyaluran 
+                WHERE program_id = ? 
+                ORDER BY tanggal_penyaluran DESC
+            ");
+            $view_penyaluran->execute([$view_id]);
+            $view_penyaluran = $view_penyaluran->fetchAll();
+            
+            // Get dampak data
+            $view_dampak = $pdo->prepare("
+                SELECT * FROM program_dampak 
+                WHERE program_id = ? 
+                ORDER BY tanggal_pengukuran DESC
+            ");
+            $view_dampak->execute([$view_id]);
+            $view_dampak = $view_dampak->fetchAll();
+            
+            // Get penyaluran by month for chart
+            $penyaluran_by_month = $pdo->prepare("
+                SELECT 
+                    DATE_FORMAT(tanggal_penyaluran, '%Y-%m') as bulan,
+                    DATE_FORMAT(tanggal_penyaluran, '%M %Y') as bulan_label,
+                    COUNT(*) as jumlah,
+                    SUM(jumlah_penyaluran) as total
+                FROM program_penyaluran
+                WHERE program_id = ?
+                GROUP BY DATE_FORMAT(tanggal_penyaluran, '%Y-%m'), DATE_FORMAT(tanggal_penyaluran, '%M %Y')
+                ORDER BY bulan ASC
+            ");
+            $penyaluran_by_month->execute([$view_id]);
+            $penyaluran_by_month = $penyaluran_by_month->fetchAll();
+            
+            // Get dampak by kategori for chart
+            $dampak_by_kategori = $pdo->prepare("
+                SELECT 
+                    kategori_dampak,
+                    COUNT(*) as jumlah,
+                    AVG(nilai) as rata_rata
+                FROM program_dampak
+                WHERE program_id = ?
+                GROUP BY kategori_dampak
+            ");
+            $dampak_by_kategori->execute([$view_id]);
+            $dampak_by_kategori = $dampak_by_kategori->fetchAll();
+            
+            // Get top indikator for chart
+            $top_indikator = $pdo->prepare("
+                SELECT 
+                    indikator,
+                    COUNT(*) as jumlah_pengukuran,
+                    AVG(nilai) as rata_rata_nilai,
+                    MAX(nilai) as nilai_max,
+                    MIN(nilai) as nilai_min
+                FROM program_dampak
+                WHERE program_id = ?
+                GROUP BY indikator
+                ORDER BY jumlah_pengukuran DESC
+                LIMIT 10
+            ");
+            $top_indikator->execute([$view_id]);
+            $top_indikator = $top_indikator->fetchAll();
+        }
+    } catch(PDOException $e) {
+        $view_program = null;
+        $error_msg = "Error: " . $e->getMessage();
+    }
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -146,6 +240,279 @@ table tr:hover { background:#f5f5f5 }
     </div>
     <?php endif; ?>
     
+    <?php if($view_program): ?>
+    <!-- Detail Program View -->
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+            <h1><?= htmlspecialchars($view_program['nama_program']) ?></h1>
+            <a href="program.php" class="btn">← Kembali ke Daftar</a>
+        </div>
+        
+        <div class="grid" style="margin-bottom:20px">
+            <div class="card">
+                <h3>📊 Progress Program</h3>
+                <?php 
+                $progress = (int)($view_program['progress'] ?? 0);
+                $progress_color = $progress < 30 ? '#e74c3c' : ($progress < 70 ? '#f39c12' : '#27ae60');
+                $budget = (float)($view_program['budget'] ?? 0);
+                $realisasi = (float)($view_program['realisasi_budget'] ?? 0);
+                $realisasi_persen = $budget > 0 ? ($realisasi / $budget * 100) : 0;
+                ?>
+                <div style="margin-top:15px">
+                    <div style="background:#e8e8e8; border-radius:10px; height:40px; position:relative; overflow:hidden; box-shadow:inset 0 2px 5px rgba(0,0,0,0.1)">
+                        <div style="background:<?= $progress_color ?>; height:100%; width:<?= $progress ?>%; transition:width 0.3s; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.2)">
+                            <span style="color:#fff; font-size:16px; font-weight:bold; text-shadow:0 1px 3px rgba(0,0,0,0.3)"><?= $progress ?>%</span>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; display:flex; justify-content:space-between">
+                        <small style="color:#666">Progress: <?= $progress ?>%</small>
+                        <small style="color:#666">Realisasi: <?= formatRupiah($realisasi) ?> (<?= number_format($realisasi_persen, 1) ?>%)</small>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>💰 Budget</h3>
+                <div style="font-size:24px; font-weight:bold; color:#2c3e50; margin-top:10px">
+                    <?= formatRupiah($budget) ?>
+                </div>
+                <div style="margin-top:10px">
+                    <small style="color:#666">Realisasi: <?= formatRupiah($realisasi) ?></small><br>
+                    <small style="color:#666">Sisa: <?= formatRupiah($budget - $realisasi) ?></small>
+                </div>
+            </div>
+            <div class="card">
+                <h3>📈 Statistik</h3>
+                <div style="margin-top:10px">
+                    <div style="margin-bottom:8px">
+                        <strong>Total Donasi:</strong><br>
+                        <span style="color:#27ae60; font-size:18px"><?= formatRupiah($view_program['total_donasi'] ?? 0) ?></span>
+                    </div>
+                    <div style="margin-bottom:8px">
+                        <strong>Total Penyaluran:</strong><br>
+                        <span style="color:#3498db; font-size:18px"><?= formatRupiah($view_program['total_penyaluran'] ?? 0) ?></span>
+                    </div>
+                    <div>
+                        <strong>Jumlah Penyaluran:</strong> <?= number_format($view_program['jumlah_penyaluran'] ?? 0) ?>x<br>
+                        <strong>Jumlah Dampak:</strong> <?= number_format($view_program['jumlah_dampak'] ?? 0) ?>x
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card" style="margin-top:20px">
+            <h3>📋 Informasi Program</h3>
+            <div class="grid" style="grid-template-columns:1fr 1fr; margin-top:15px">
+                <div>
+                    <strong>Kategori:</strong> <?= ucfirst($view_program['kategori']) ?><br>
+                    <strong>Status:</strong> 
+                    <span class="badge badge-<?= $view_program['status'] ?>"><?= ucfirst($view_program['status']) ?></span><br>
+                    <strong>Lokasi:</strong> <?= htmlspecialchars($view_program['lokasi'] ?? '-') ?><br>
+                    <strong>PIC:</strong> <?= htmlspecialchars($view_program['pic_name'] ?? '-') ?>
+                </div>
+                <div>
+                    <strong>Tanggal Mulai:</strong> <?= $view_program['tanggal_mulai'] ? date('d/m/Y', strtotime($view_program['tanggal_mulai'])) : '-' ?><br>
+                    <strong>Tanggal Selesai:</strong> <?= $view_program['tanggal_selesai'] ? date('d/m/Y', strtotime($view_program['tanggal_selesai'])) : '-' ?><br>
+                    <?php if($view_program['latitude'] && $view_program['longitude']): ?>
+                    <strong>Koordinat:</strong> <?= $view_program['latitude'] ?>, <?= $view_program['longitude'] ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php if($view_program['deskripsi']): ?>
+            <div style="margin-top:15px; padding:15px; background:#f8f9fa; border-radius:5px">
+                <strong>Deskripsi:</strong><br>
+                <?= nl2br(htmlspecialchars($view_program['deskripsi'])) ?>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <div class="grid" style="margin-top:20px">
+            <div class="card">
+                <h3>📊 Grafik Penyaluran per Bulan</h3>
+                <canvas id="chartPenyaluranDetail" style="max-height:300px"></canvas>
+            </div>
+            <div class="card">
+                <h3>📊 Dampak per Kategori</h3>
+                <canvas id="chartDampakKategoriDetail" style="max-height:300px"></canvas>
+            </div>
+        </div>
+        
+        <div class="card" style="margin-top:20px">
+            <h3>📊 Top Indikator Dampak</h3>
+            <canvas id="chartIndikatorDetail" style="max-height:400px"></canvas>
+        </div>
+        
+        <div class="grid" style="margin-top:20px">
+            <div class="card">
+                <h3>💰 Daftar Penyaluran</h3>
+                <table style="margin-top:15px">
+                    <thead>
+                        <tr>
+                            <th>Tanggal</th>
+                            <th>Jumlah</th>
+                            <th>Sasaran</th>
+                            <th>Lokasi</th>
+                            <th>Metode</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if(empty($view_penyaluran)): ?>
+                        <tr>
+                            <td colspan="5" style="text-align:center; padding:20px; color:#999">
+                                Belum ada data penyaluran
+                            </td>
+                        </tr>
+                        <?php else: ?>
+                        <?php foreach($view_penyaluran as $pen): ?>
+                        <tr>
+                            <td><?= date('d/m/Y', strtotime($pen['tanggal_penyaluran'])) ?></td>
+                            <td class="text-success"><strong><?= formatRupiah($pen['jumlah_penyaluran']) ?></strong></td>
+                            <td><?= htmlspecialchars($pen['sasaran'] ?? '-') ?></td>
+                            <td><?= htmlspecialchars($pen['lokasi_penyaluran'] ?? '-') ?></td>
+                            <td><?= htmlspecialchars($pen['metode_penyaluran'] ?? '-') ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3>📊 Daftar Pengukuran Dampak</h3>
+                <table style="margin-top:15px">
+                    <thead>
+                        <tr>
+                            <th>Tanggal</th>
+                            <th>Indikator</th>
+                            <th>Nilai</th>
+                            <th>Kategori</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if(empty($view_dampak)): ?>
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding:20px; color:#999">
+                                Belum ada data pengukuran dampak
+                            </td>
+                        </tr>
+                        <?php else: ?>
+                        <?php foreach($view_dampak as $damp): ?>
+                        <tr>
+                            <td><?= date('d/m/Y', strtotime($damp['tanggal_pengukuran'])) ?></td>
+                            <td><?= htmlspecialchars($damp['indikator']) ?></td>
+                            <td class="text-success">
+                                <strong><?= number_format($damp['nilai'] ?? 0, 2) ?></strong>
+                                <?php if($damp['satuan']): ?>
+                                <small><?= htmlspecialchars($damp['satuan']) ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <span class="badge"><?= ucfirst($damp['kategori_dampak']) ?></span>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    // Chart Penyaluran per Bulan
+    const ctxPenyaluran = document.getElementById('chartPenyaluranDetail');
+    if (ctxPenyaluran) {
+        new Chart(ctxPenyaluran, {
+            type: 'line',
+            data: {
+                labels: <?= json_encode(array_column($penyaluran_by_month ?? [], 'bulan_label')) ?>,
+                datasets: [{
+                    label: 'Total Penyaluran (Rp)',
+                    data: <?= json_encode(array_column($penyaluran_by_month ?? [], 'total')) ?>,
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return 'Rp ' + (value / 1000000).toFixed(1) + 'M';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Chart Dampak per Kategori
+    const ctxDampakKategori = document.getElementById('chartDampakKategoriDetail');
+    if (ctxDampakKategori) {
+        new Chart(ctxDampakKategori, {
+            type: 'doughnut',
+            data: {
+                labels: <?= json_encode(array_column($dampak_by_kategori ?? [], 'kategori_dampak')) ?>,
+                datasets: [{
+                    data: <?= json_encode(array_column($dampak_by_kategori ?? [], 'jumlah')) ?>,
+                    backgroundColor: [
+                        '#3498db', '#27ae60', '#f39c12', '#e74c3c', '#9b59b6', '#1abc9c'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    }
+    
+    // Chart Top Indikator
+    const ctxIndikator = document.getElementById('chartIndikatorDetail');
+    if (ctxIndikator) {
+        new Chart(ctxIndikator, {
+            type: 'bar',
+            data: {
+                labels: <?= json_encode(array_column($top_indikator ?? [], 'indikator')) ?>,
+                datasets: [{
+                    label: 'Rata-rata Nilai',
+                    data: <?= json_encode(array_column($top_indikator ?? [], 'rata_rata_nilai')) ?>,
+                    backgroundColor: '#27ae60',
+                    borderColor: '#229954',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    </script>
+    
+    <?php else: ?>
+    <!-- Normal View (List/Tabs) -->
     <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:2px solid #ddd; padding-bottom:10px; flex-wrap:wrap">
         <a href="program.php" class="btn <?= !isset($_GET['tab']) || $_GET['tab'] == 'list' ? 'btn-success' : '' ?>">📋 Daftar Program</a>
         <a href="program.php?tab=sebaran" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'sebaran' ? 'btn-success' : '' ?>">🗺️ Sebaran Aksi Program</a>
