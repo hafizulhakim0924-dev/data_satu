@@ -1,13 +1,46 @@
 <?php
-// Enable error reporting for debugging
+// Enable error reporting for debugging - ALWAYS ON
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/php_errors.log');
 
 // Start output buffering
 if (!ob_get_level()) {
-    ob_start();
+    @ob_start();
 }
+
+// Set custom error handler to capture all errors
+$captured_errors = [];
+if (!isset($GLOBALS['program_captured_errors'])) {
+    $GLOBALS['program_captured_errors'] = [];
+}
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    if (!isset($GLOBALS['program_captured_errors'])) {
+        $GLOBALS['program_captured_errors'] = [];
+    }
+    $GLOBALS['program_captured_errors'][] = [
+        'type' => $errno,
+        'message' => $errstr,
+        'file' => $errfile,
+        'line' => $errline
+    ];
+    return false; // Let PHP handle it normally too
+});
+
+// Set exception handler
+set_exception_handler(function($exception) {
+    if (!isset($GLOBALS['program_captured_errors'])) {
+        $GLOBALS['program_captured_errors'] = [];
+    }
+    $GLOBALS['program_captured_errors'][] = [
+        'type' => E_ERROR,
+        'message' => $exception->getMessage(),
+        'file' => $exception->getFile(),
+        'line' => $exception->getLine(),
+        'trace' => $exception->getTraceAsString()
+    ];
+});
 
 // Initialize error variables
 $error_msg = null;
@@ -433,69 +466,95 @@ table tr:hover { background:#f5f5f5 }
     <?php endif; ?>
     
     <?php 
-    // Display all PHP errors and warnings
-    $display_errors = isset($_GET['debug']) || isset($_GET['show_errors']);
+    // ALWAYS Display PHP errors and warnings
+    $last_error = error_get_last();
+    $all_errors = [];
+    
+    // Add captured errors from error handler
+    if (!empty($captured_errors)) {
+        $all_errors = array_merge($all_errors, $captured_errors);
+    }
+    
+    // Get any output buffer errors (only if buffer is active)
+    if (ob_get_level() > 0) {
+        $output = @ob_get_contents();
+        if ($output && (strpos($output, 'Warning') !== false || strpos($output, 'Error') !== false || strpos($output, 'Fatal') !== false || strpos($output, 'Parse error') !== false)) {
+            $all_errors[] = ['type' => E_WARNING, 'message' => substr($output, 0, 1000), 'file' => 'Output Buffer', 'line' => 0];
+        }
+    }
+    
+    if ($last_error && $last_error['type'] <= E_WARNING) {
+        $all_errors[] = $last_error;
+    }
+    
+    // Always show errors if there are any, or if debug mode is on
+    $display_errors = !empty($all_errors) || isset($_GET['debug']) || isset($_GET['show_errors']);
+    
     if ($display_errors):
-        $last_error = error_get_last();
-        $all_errors = [];
-        
-        // Get any output buffer errors (only if buffer is active)
-        if (ob_get_level() > 0) {
-            $output = ob_get_contents();
-            if ($output && (strpos($output, 'Warning') !== false || strpos($output, 'Error') !== false || strpos($output, 'Fatal') !== false)) {
-                $all_errors[] = ['type' => E_WARNING, 'message' => substr($output, 0, 500), 'file' => 'Output Buffer', 'line' => 0];
-            }
-        }
-        
-        if ($last_error && $last_error['type'] <= E_WARNING) {
-            $all_errors[] = $last_error;
-        }
     ?>
-    <div class="alert" style="background:#fff3cd; color:#856404; border:2px solid #ffc107; margin-bottom:20px">
-        <strong>🔍 Error Debug Information</strong>
+    <div class="alert" style="background:#fff3cd; color:#856404; border:2px solid #ffc107; margin-bottom:20px; position:relative; z-index:9999">
+        <strong style="font-size:18px">🔍 Error Debug Information</strong>
         <button onclick="this.parentElement.style.display='none'" style="float:right; background:#856404; color:#fff; border:none; padding:5px 10px; border-radius:3px; cursor:pointer">Tutup</button>
-        <div style="margin-top:15px; font-family:monospace; font-size:12px; background:#f8f9fa; padding:15px; border-radius:5px; max-height:400px; overflow-y:auto; clear:both">
+        <div style="clear:both; margin-top:10px">
             <?php if (!empty($all_errors)): ?>
-            <strong style="color:#e74c3c">PHP Errors/Warnings:</strong>
-            <ul style="margin:10px 0; padding-left:20px">
-                <?php foreach($all_errors as $err): ?>
-                <li style="margin:5px 0">
-                    <strong style="color:#e74c3c">
-                        <?php 
-                        $error_types = [
-                            E_ERROR => 'Fatal Error',
-                            E_WARNING => 'Warning',
-                            E_PARSE => 'Parse Error',
-                            E_NOTICE => 'Notice',
-                            E_CORE_ERROR => 'Core Error',
-                            E_CORE_WARNING => 'Core Warning',
-                            E_COMPILE_ERROR => 'Compile Error',
-                            E_COMPILE_WARNING => 'Compile Warning',
-                            E_USER_ERROR => 'User Error',
-                            E_USER_WARNING => 'User Warning',
-                            E_USER_NOTICE => 'User Notice',
-                            E_STRICT => 'Strict',
-                            E_RECOVERABLE_ERROR => 'Recoverable Error',
-                            E_DEPRECATED => 'Deprecated',
-                            E_USER_DEPRECATED => 'User Deprecated'
-                        ];
-                        echo $error_types[$err['type']] ?? 'Error';
-                        ?>:
-                    </strong>
-                    <span style="color:#2c3e50"><?= htmlspecialchars($err['message']) ?></span>
-                    <?php if(isset($err['file']) && $err['file']): ?>
-                    <br><small style="color:#7f8c8d">
-                        File: <strong><?= htmlspecialchars($err['file']) ?></strong>
-                        <?php if(isset($err['line'])): ?>
-                        (Line: <strong><?= $err['line'] ?></strong>)
+            <div style="background:#f8d7da; color:#721c24; padding:10px; border-radius:5px; margin-bottom:10px">
+                <strong style="font-size:16px">⚠️ ERRORS DETECTED (<?= count($all_errors) ?>):</strong>
+            </div>
+            <?php endif; ?>
+        </div>
+        <div style="margin-top:15px; font-family:monospace; font-size:12px; background:#f8f9fa; padding:15px; border-radius:5px; max-height:500px; overflow-y:auto; clear:both">
+            <?php if (!empty($all_errors)): ?>
+            <strong style="color:#e74c3c; font-size:16px">❌ PHP Errors/Warnings:</strong>
+            <div style="max-height:400px; overflow-y:auto; margin:10px 0">
+                <ul style="margin:10px 0; padding-left:20px; list-style:none">
+                    <?php foreach($all_errors as $idx => $err): ?>
+                    <li style="margin:10px 0; padding:10px; background:#fff; border-left:4px solid #e74c3c; border-radius:3px">
+                        <strong style="color:#e74c3c; display:block; margin-bottom:5px">
+                            #<?= $idx + 1 ?> - <?php 
+                            $error_types = [
+                                E_ERROR => '🔴 FATAL ERROR',
+                                E_WARNING => '⚠️ WARNING',
+                                E_PARSE => '🔴 PARSE ERROR',
+                                E_NOTICE => 'ℹ️ NOTICE',
+                                E_CORE_ERROR => '🔴 CORE ERROR',
+                                E_CORE_WARNING => '⚠️ CORE WARNING',
+                                E_COMPILE_ERROR => '🔴 COMPILE ERROR',
+                                E_COMPILE_WARNING => '⚠️ COMPILE WARNING',
+                                E_USER_ERROR => '🔴 USER ERROR',
+                                E_USER_WARNING => '⚠️ USER WARNING',
+                                E_USER_NOTICE => 'ℹ️ USER NOTICE',
+                                E_STRICT => 'ℹ️ STRICT',
+                                E_RECOVERABLE_ERROR => '🔴 RECOVERABLE ERROR',
+                                E_DEPRECATED => '⚠️ DEPRECATED',
+                                E_USER_DEPRECATED => '⚠️ USER DEPRECATED'
+                            ];
+                            echo $error_types[$err['type']] ?? '❌ ERROR';
+                            ?>
+                        </strong>
+                        <div style="color:#2c3e50; font-family:monospace; font-size:13px; background:#f8f9fa; padding:8px; border-radius:3px; word-break:break-word">
+                            <?= htmlspecialchars($err['message']) ?>
+                        </div>
+                        <?php if(isset($err['file']) && $err['file']): ?>
+                        <div style="margin-top:5px">
+                            <small style="color:#7f8c8d">
+                                📁 File: <strong><?= htmlspecialchars(basename($err['file'])) ?></strong>
+                                <?php if(isset($err['line'])): ?>
+                                | 📍 Line: <strong><?= $err['line'] ?></strong>
+                                <?php endif; ?>
+                                <?php if(isset($err['trace'])): ?>
+                                <br><details style="margin-top:5px"><summary style="cursor:pointer; color:#3498db">Show Stack Trace</summary>
+                                <pre style="background:#2c3e50; color:#fff; padding:10px; border-radius:3px; margin-top:5px; font-size:11px; overflow-x:auto"><?= htmlspecialchars($err['trace']) ?></pre>
+                                </details>
+                                <?php endif; ?>
+                            </small>
+                        </div>
                         <?php endif; ?>
-                    </small>
-                    <?php endif; ?>
-                </li>
-                <?php endforeach; ?>
-            </ul>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
             <?php else: ?>
-            <p style="color:#27ae60">✓ Tidak ada error PHP yang terdeteksi</p>
+            <p style="color:#27ae60; font-size:16px; padding:10px; background:#d4edda; border-radius:5px">✓ Tidak ada error PHP yang terdeteksi</p>
             <?php endif; ?>
             
             <hr style="margin:15px 0; border-color:#ddd">
