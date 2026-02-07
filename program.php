@@ -85,6 +85,9 @@ $view_program = null;
 $view_penyaluran = [];
 $view_dampak = [];
 $view_stats = [];
+$penyaluran_by_month = [];
+$dampak_by_kategori = [];
+$top_indikator = [];
 
 if ($view_id) {
     try {
@@ -123,49 +126,61 @@ if ($view_id) {
             $view_dampak = $view_dampak->fetchAll();
             
             // Get penyaluran by month for chart
-            $penyaluran_by_month = $pdo->prepare("
-                SELECT 
-                    DATE_FORMAT(tanggal_penyaluran, '%Y-%m') as bulan,
-                    DATE_FORMAT(tanggal_penyaluran, '%M %Y') as bulan_label,
-                    COUNT(*) as jumlah,
-                    SUM(jumlah_penyaluran) as total
-                FROM program_penyaluran
-                WHERE program_id = ?
-                GROUP BY DATE_FORMAT(tanggal_penyaluran, '%Y-%m'), DATE_FORMAT(tanggal_penyaluran, '%M %Y')
-                ORDER BY bulan ASC
-            ");
-            $penyaluran_by_month->execute([$view_id]);
-            $penyaluran_by_month = $penyaluran_by_month->fetchAll();
+            try {
+                $penyaluran_by_month = $pdo->prepare("
+                    SELECT 
+                        DATE_FORMAT(tanggal_penyaluran, '%Y-%m') as bulan,
+                        DATE_FORMAT(tanggal_penyaluran, '%M %Y') as bulan_label,
+                        COUNT(*) as jumlah,
+                        SUM(jumlah_penyaluran) as total
+                    FROM program_penyaluran
+                    WHERE program_id = ?
+                    GROUP BY DATE_FORMAT(tanggal_penyaluran, '%Y-%m'), DATE_FORMAT(tanggal_penyaluran, '%M %Y')
+                    ORDER BY bulan ASC
+                ");
+                $penyaluran_by_month->execute([$view_id]);
+                $penyaluran_by_month = $penyaluran_by_month->fetchAll();
+            } catch(PDOException $e) {
+                $penyaluran_by_month = [];
+            }
             
             // Get dampak by kategori for chart
-            $dampak_by_kategori = $pdo->prepare("
-                SELECT 
-                    kategori_dampak,
-                    COUNT(*) as jumlah,
-                    AVG(nilai) as rata_rata
-                FROM program_dampak
-                WHERE program_id = ?
-                GROUP BY kategori_dampak
-            ");
-            $dampak_by_kategori->execute([$view_id]);
-            $dampak_by_kategori = $dampak_by_kategori->fetchAll();
+            try {
+                $dampak_by_kategori = $pdo->prepare("
+                    SELECT 
+                        kategori_dampak,
+                        COUNT(*) as jumlah,
+                        AVG(nilai) as rata_rata
+                    FROM program_dampak
+                    WHERE program_id = ?
+                    GROUP BY kategori_dampak
+                ");
+                $dampak_by_kategori->execute([$view_id]);
+                $dampak_by_kategori = $dampak_by_kategori->fetchAll();
+            } catch(PDOException $e) {
+                $dampak_by_kategori = [];
+            }
             
             // Get top indikator for chart
-            $top_indikator = $pdo->prepare("
-                SELECT 
-                    indikator,
-                    COUNT(*) as jumlah_pengukuran,
-                    AVG(nilai) as rata_rata_nilai,
-                    MAX(nilai) as nilai_max,
-                    MIN(nilai) as nilai_min
-                FROM program_dampak
-                WHERE program_id = ?
-                GROUP BY indikator
-                ORDER BY jumlah_pengukuran DESC
-                LIMIT 10
-            ");
-            $top_indikator->execute([$view_id]);
-            $top_indikator = $top_indikator->fetchAll();
+            try {
+                $top_indikator = $pdo->prepare("
+                    SELECT 
+                        indikator,
+                        COUNT(*) as jumlah_pengukuran,
+                        AVG(nilai) as rata_rata_nilai,
+                        MAX(nilai) as nilai_max,
+                        MIN(nilai) as nilai_min
+                    FROM program_dampak
+                    WHERE program_id = ?
+                    GROUP BY indikator
+                    ORDER BY jumlah_pengukuran DESC
+                    LIMIT 10
+                ");
+                $top_indikator->execute([$view_id]);
+                $top_indikator = $top_indikator->fetchAll();
+            } catch(PDOException $e) {
+                $top_indikator = [];
+            }
         }
     } catch(PDOException $e) {
         $view_program = null;
@@ -846,47 +861,60 @@ table tr:hover { background:#f5f5f5 }
     <?php if(isset($_GET['tab']) && $_GET['tab'] == 'peta_strategi'): ?>
     <?php
     // Get lokasi strategis data
+    $lokasi_list = [];
+    $stats_lokasi = ['total_lokasi' => 0, 'total_warga_all' => 0, 'total_warga_miskin_all' => 0, 'total_warga_terdampak_all' => 0, 'sangat_tinggi' => 0, 'tinggi' => 0, 'sedang' => 0, 'rendah' => 0];
+    $lokasi_by_tipe = [];
+    
     try {
-        $lokasi_list = $pdo->query("
-            SELECT l.*,
-                COUNT(DISTINCT pl.program_id) as jumlah_program,
-                SUM(pl.jumlah_penerima) as total_penerima_program
-            FROM lokasi_strategis l
-            LEFT JOIN program_lokasi pl ON l.id = pl.lokasi_id
-            WHERE l.status = 'aktif'
-            GROUP BY l.id
-            ORDER BY l.prioritas DESC, l.total_warga DESC
-        ")->fetchAll();
+        // Check if table exists
+        $table_exists = $pdo->query("SHOW TABLES LIKE 'lokasi_strategis'")->fetch();
         
-        // Get statistics
-        $stats_lokasi = $pdo->query("
-            SELECT 
-                COUNT(*) as total_lokasi,
-                SUM(total_warga) as total_warga_all,
-                SUM(warga_miskin) as total_warga_miskin_all,
-                SUM(warga_terdampak) as total_warga_terdampak_all,
-                COUNT(CASE WHEN prioritas = 'sangat_tinggi' THEN 1 END) as sangat_tinggi,
-                COUNT(CASE WHEN prioritas = 'tinggi' THEN 1 END) as tinggi,
-                COUNT(CASE WHEN prioritas = 'sedang' THEN 1 END) as sedang,
-                COUNT(CASE WHEN prioritas = 'rendah' THEN 1 END) as rendah
-            FROM lokasi_strategis
-            WHERE status = 'aktif'
-        ")->fetch();
-        
-        // Get lokasi by tipe
-        $lokasi_by_tipe = $pdo->query("
-            SELECT 
-                tipe_lokasi,
-                COUNT(*) as jumlah,
-                SUM(total_warga) as total_warga,
-                SUM(warga_terdampak) as total_terdampak
-            FROM lokasi_strategis
-            WHERE status = 'aktif'
-            GROUP BY tipe_lokasi
-        ")->fetchAll();
+        if ($table_exists) {
+            $lokasi_list = $pdo->query("
+                SELECT l.*,
+                    COUNT(DISTINCT pl.program_id) as jumlah_program,
+                    SUM(pl.jumlah_penerima) as total_penerima_program
+                FROM lokasi_strategis l
+                LEFT JOIN program_lokasi pl ON l.id = pl.lokasi_id
+                WHERE l.status = 'aktif'
+                GROUP BY l.id
+                ORDER BY l.prioritas DESC, l.total_warga DESC
+            ")->fetchAll();
+            
+            // Get statistics
+            $stats_result = $pdo->query("
+                SELECT 
+                    COUNT(*) as total_lokasi,
+                    SUM(total_warga) as total_warga_all,
+                    SUM(warga_miskin) as total_warga_miskin_all,
+                    SUM(warga_terdampak) as total_warga_terdampak_all,
+                    COUNT(CASE WHEN prioritas = 'sangat_tinggi' THEN 1 END) as sangat_tinggi,
+                    COUNT(CASE WHEN prioritas = 'tinggi' THEN 1 END) as tinggi,
+                    COUNT(CASE WHEN prioritas = 'sedang' THEN 1 END) as sedang,
+                    COUNT(CASE WHEN prioritas = 'rendah' THEN 1 END) as rendah
+                FROM lokasi_strategis
+                WHERE status = 'aktif'
+            ")->fetch();
+            
+            if ($stats_result) {
+                $stats_lokasi = $stats_result;
+            }
+            
+            // Get lokasi by tipe
+            $lokasi_by_tipe = $pdo->query("
+                SELECT 
+                    tipe_lokasi,
+                    COUNT(*) as jumlah,
+                    SUM(total_warga) as total_warga,
+                    SUM(warga_terdampak) as total_terdampak
+                FROM lokasi_strategis
+                WHERE status = 'aktif'
+                GROUP BY tipe_lokasi
+            ")->fetchAll();
+        }
     } catch(PDOException $e) {
         $lokasi_list = [];
-        $stats_lokasi = ['total_lokasi' => 0, 'total_warga_all' => 0, 'total_warga_miskin_all' => 0, 'total_warga_terdampak_all' => 0];
+        $stats_lokasi = ['total_lokasi' => 0, 'total_warga_all' => 0, 'total_warga_miskin_all' => 0, 'total_warga_terdampak_all' => 0, 'sangat_tinggi' => 0, 'tinggi' => 0, 'sedang' => 0, 'rendah' => 0];
         $lokasi_by_tipe = [];
     }
     ?>
@@ -1031,7 +1059,7 @@ table tr:hover { background:#f5f5f5 }
         maxZoom: 18
     }).addTo(mapStrategi);
     
-    const lokasiData = <?= json_encode($lokasi_list) ?>;
+    const lokasiData = <?= json_encode($lokasi_list ?? []) ?>;
     const markers = [];
     
     // Color mapping for prioritas
@@ -1045,8 +1073,14 @@ table tr:hover { background:#f5f5f5 }
     // Add markers for each location
     function addMarkers(filterPrioritas = '', filterTipe = '') {
         // Clear existing markers
-        markers.forEach(m => mapStrategi.removeLayer(m.marker));
+        markers.forEach(function(m) {
+            mapStrategi.removeLayer(m.marker);
+        });
         markers.length = 0;
+        
+        if (!lokasiData || lokasiData.length === 0) {
+            return;
+        }
         
         lokasiData.forEach(function(lokasi) {
             // Apply filters
@@ -1096,10 +1130,25 @@ table tr:hover { background:#f5f5f5 }
     }
     
     function showLokasiDetail(id) {
-        const lokasi = lokasiData.find(l => l.id == id);
+        if (!lokasiData || lokasiData.length === 0) return;
+        
+        let lokasi = null;
+        for (let i = 0; i < lokasiData.length; i++) {
+            if (lokasiData[i].id == id) {
+                lokasi = lokasiData[i];
+                break;
+            }
+        }
+        
         if (lokasi) {
             mapStrategi.setView([parseFloat(lokasi.latitude), parseFloat(lokasi.longitude)], 12);
-            const marker = markers.find(m => m.id == id);
+            let marker = null;
+            for (let i = 0; i < markers.length; i++) {
+                if (markers[i].id == id) {
+                    marker = markers[i];
+                    break;
+                }
+            }
             if (marker) {
                 marker.marker.openPopup();
             }
@@ -1112,14 +1161,22 @@ table tr:hover { background:#f5f5f5 }
         new Chart(ctxTipe, {
             type: 'bar',
             data: {
-                labels: <?= json_encode(array_column($lokasi_by_tipe, 'tipe_lokasi')) ?>,
+                labels: <?= json_encode(array_column($lokasi_by_tipe ?? [], 'tipe_lokasi')) ?>,
                 datasets: [{
                     label: 'Jumlah Lokasi',
-                    data: <?= json_encode(array_column($lokasi_by_tipe, 'jumlah')) ?>,
+                    data: <?= json_encode(array_column($lokasi_by_tipe ?? [], 'jumlah')) ?>,
                     backgroundColor: '#3498db'
                 }, {
                     label: 'Total Warga (ribu)',
-                    data: <?= json_encode(array_map(function($v) { return round($v / 1000, 1); }, array_column($lokasi_by_tipe ?? [], 'total_warga'))) ?>,
+                    data: <?php 
+                        $warga_data = [];
+                        if (!empty($lokasi_by_tipe)) {
+                            foreach($lokasi_by_tipe as $item) {
+                                $warga_data[] = round(($item['total_warga'] ?? 0) / 1000, 1);
+                            }
+                        }
+                        echo json_encode($warga_data);
+                    ?>,
                     backgroundColor: '#27ae60',
                     yAxisID: 'y1'
                 }]
@@ -1155,10 +1212,10 @@ table tr:hover { background:#f5f5f5 }
                 labels: ['Sangat Tinggi', 'Tinggi', 'Sedang', 'Rendah'],
                 datasets: [{
                     data: [
-                        <?= $stats_lokasi['sangat_tinggi'] ?? 0 ?>,
-                        <?= $stats_lokasi['tinggi'] ?? 0 ?>,
-                        <?= $stats_lokasi['sedang'] ?? 0 ?>,
-                        <?= $stats_lokasi['rendah'] ?? 0 ?>
+                        <?= (int)($stats_lokasi['sangat_tinggi'] ?? 0) ?>,
+                        <?= (int)($stats_lokasi['tinggi'] ?? 0) ?>,
+                        <?= (int)($stats_lokasi['sedang'] ?? 0) ?>,
+                        <?= (int)($stats_lokasi['rendah'] ?? 0) ?>
                     ],
                     backgroundColor: ['#e74c3c', '#f39c12', '#3498db', '#95a5a6']
                 }]
