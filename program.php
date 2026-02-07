@@ -517,6 +517,7 @@ table tr:hover { background:#f5f5f5 }
         <a href="program.php" class="btn <?= !isset($_GET['tab']) || $_GET['tab'] == 'list' ? 'btn-success' : '' ?>">📋 Daftar Program</a>
         <a href="program.php?tab=sebaran" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'sebaran' ? 'btn-success' : '' ?>">🗺️ Sebaran Aksi Program</a>
         <a href="program.php?tab=peta" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'peta' ? 'btn-success' : '' ?>">📍 Peta Sebaran</a>
+        <a href="program.php?tab=peta_strategi" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'peta_strategi' ? 'btn-success' : '' ?>">🗺️ Peta Strategi</a>
         <a href="program.php?tab=penyaluran" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'penyaluran' ? 'btn-success' : '' ?>">💰 Penyaluran</a>
         <a href="program.php?tab=dampak" class="btn <?= isset($_GET['tab']) && $_GET['tab'] == 'dampak' ? 'btn-success' : '' ?>">📊 Dampak Program</a>
     </div>
@@ -837,6 +838,338 @@ table tr:hover { background:#f5f5f5 }
         .catch(error => {
             console.error('Error:', error);
             alert('Error menyimpan koordinat');
+        });
+    }
+    </script>
+    <?php endif; ?>
+    
+    <?php if(isset($_GET['tab']) && $_GET['tab'] == 'peta_strategi'): ?>
+    <?php
+    // Get lokasi strategis data
+    try {
+        $lokasi_list = $pdo->query("
+            SELECT l.*,
+                COUNT(DISTINCT pl.program_id) as jumlah_program,
+                SUM(pl.jumlah_penerima) as total_penerima_program
+            FROM lokasi_strategis l
+            LEFT JOIN program_lokasi pl ON l.id = pl.lokasi_id
+            WHERE l.status = 'aktif'
+            GROUP BY l.id
+            ORDER BY l.prioritas DESC, l.total_warga DESC
+        ")->fetchAll();
+        
+        // Get statistics
+        $stats_lokasi = $pdo->query("
+            SELECT 
+                COUNT(*) as total_lokasi,
+                SUM(total_warga) as total_warga_all,
+                SUM(warga_miskin) as total_warga_miskin_all,
+                SUM(warga_terdampak) as total_warga_terdampak_all,
+                COUNT(CASE WHEN prioritas = 'sangat_tinggi' THEN 1 END) as sangat_tinggi,
+                COUNT(CASE WHEN prioritas = 'tinggi' THEN 1 END) as tinggi,
+                COUNT(CASE WHEN prioritas = 'sedang' THEN 1 END) as sedang,
+                COUNT(CASE WHEN prioritas = 'rendah' THEN 1 END) as rendah
+            FROM lokasi_strategis
+            WHERE status = 'aktif'
+        ")->fetch();
+        
+        // Get lokasi by tipe
+        $lokasi_by_tipe = $pdo->query("
+            SELECT 
+                tipe_lokasi,
+                COUNT(*) as jumlah,
+                SUM(total_warga) as total_warga,
+                SUM(warga_terdampak) as total_terdampak
+            FROM lokasi_strategis
+            WHERE status = 'aktif'
+            GROUP BY tipe_lokasi
+        ")->fetchAll();
+    } catch(PDOException $e) {
+        $lokasi_list = [];
+        $stats_lokasi = ['total_lokasi' => 0, 'total_warga_all' => 0, 'total_warga_miskin_all' => 0, 'total_warga_terdampak_all' => 0];
+        $lokasi_by_tipe = [];
+    }
+    ?>
+    <div class="card">
+        <h2>🗺️ Peta Strategi Sumatera Barat</h2>
+        <p style="margin-bottom:20px">Peta lokasi strategis dengan data jumlah warga, warga terdampak, dan program CSR</p>
+        
+        <div class="grid" style="margin-bottom:20px; grid-template-columns:repeat(4,1fr)">
+            <div class="card">
+                <h3>Total Lokasi</h3>
+                <div style="font-size:24px; font-weight:bold; color:#3498db">
+                    <?= number_format($stats_lokasi['total_lokasi'] ?? 0) ?>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Total Warga</h3>
+                <div style="font-size:24px; font-weight:bold; color:#27ae60">
+                    <?= number_format($stats_lokasi['total_warga_all'] ?? 0) ?>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Warga Miskin</h3>
+                <div style="font-size:24px; font-weight:bold; color:#f39c12">
+                    <?= number_format($stats_lokasi['total_warga_miskin_all'] ?? 0) ?>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Warga Terdampak</h3>
+                <div style="font-size:24px; font-weight:bold; color:#e74c3c">
+                    <?= number_format($stats_lokasi['total_warga_terdampak_all'] ?? 0) ?>
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid" style="margin-bottom:20px">
+            <div class="card">
+                <h3>📊 Distribusi Lokasi per Tipe</h3>
+                <canvas id="chartLokasiTipe" style="max-height:300px"></canvas>
+            </div>
+            <div class="card">
+                <h3>📊 Prioritas Lokasi</h3>
+                <canvas id="chartPrioritas" style="max-height:300px"></canvas>
+            </div>
+        </div>
+        
+        <div class="card" style="margin-bottom:20px">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                <h3>📍 Peta Interaktif Sumatera Barat</h3>
+                <div>
+                    <label>Filter Prioritas: </label>
+                    <select id="filterPrioritas" onchange="filterMap()" style="padding:5px; margin-left:10px">
+                        <option value="">Semua</option>
+                        <option value="sangat_tinggi">Sangat Tinggi</option>
+                        <option value="tinggi">Tinggi</option>
+                        <option value="sedang">Sedang</option>
+                        <option value="rendah">Rendah</option>
+                    </select>
+                    <select id="filterTipe" onchange="filterMap()" style="padding:5px; margin-left:10px">
+                        <option value="">Semua Tipe</option>
+                        <option value="kabupaten">Kabupaten</option>
+                        <option value="kota">Kota</option>
+                        <option value="kecamatan">Kecamatan</option>
+                        <option value="desa">Desa</option>
+                    </select>
+                </div>
+            </div>
+            <div id="mapStrategi" style="height:600px; width:100%; border:2px solid #ddd; border-radius:8px"></div>
+            <div style="margin-top:15px; padding:15px; background:#f8f9fa; border-radius:5px">
+                <h4>Legenda:</h4>
+                <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:10px">
+                    <div><span style="color:#e74c3c; font-size:20px">●</span> Sangat Tinggi</div>
+                    <div><span style="color:#f39c12; font-size:20px">●</span> Tinggi</div>
+                    <div><span style="color:#3498db; font-size:20px">●</span> Sedang</div>
+                    <div><span style="color:#95a5a6; font-size:20px">●</span> Rendah</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>📋 Daftar Lokasi Strategis</h3>
+            <table style="margin-top:15px">
+                <thead>
+                    <tr>
+                        <th>Nama Lokasi</th>
+                        <th>Tipe</th>
+                        <th>Total Warga</th>
+                        <th>Warga Miskin</th>
+                        <th>Warga Terdampak</th>
+                        <th>Prioritas</th>
+                        <th>Program</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if(empty($lokasi_list)): ?>
+                    <tr>
+                        <td colspan="8" style="text-align:center; padding:40px; color:#999">
+                            Belum ada data lokasi strategis. Jalankan script generate_dummy_lokasi_sumbar.sql
+                        </td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach($lokasi_list as $lok): 
+                        $prioritas_color = [
+                            'sangat_tinggi' => '#e74c3c',
+                            'tinggi' => '#f39c12',
+                            'sedang' => '#3498db',
+                            'rendah' => '#95a5a6'
+                        ][$lok['prioritas']] ?? '#95a5a6';
+                    ?>
+                    <tr>
+                        <td><strong><?= htmlspecialchars($lok['nama_lokasi']) ?></strong></td>
+                        <td><?= ucfirst($lok['tipe_lokasi']) ?></td>
+                        <td><?= number_format($lok['total_warga']) ?></td>
+                        <td><?= number_format($lok['warga_miskin']) ?></td>
+                        <td class="text-danger"><strong><?= number_format($lok['warga_terdampak']) ?></strong></td>
+                        <td>
+                            <span style="color:<?= $prioritas_color ?>; font-weight:bold">
+                                <?= ucfirst(str_replace('_', ' ', $lok['prioritas'])) ?>
+                            </span>
+                        </td>
+                        <td><?= number_format($lok['jumlah_program'] ?? 0) ?> program</td>
+                        <td>
+                            <button class="btn btn-sm" onclick="showLokasiDetail(<?= $lok['id'] ?>)">Detail</button>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    // Initialize map centered on West Sumatra
+    const mapStrategi = L.map('mapStrategi').setView([-0.94924, 100.35427], 8);
+    
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{s}/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 18
+    }).addTo(mapStrategi);
+    
+    const lokasiData = <?= json_encode($lokasi_list) ?>;
+    const markers = [];
+    
+    // Color mapping for prioritas
+    const prioritasColors = {
+        'sangat_tinggi': '#e74c3c',
+        'tinggi': '#f39c12',
+        'sedang': '#3498db',
+        'rendah': '#95a5a6'
+    };
+    
+    // Add markers for each location
+    function addMarkers(filterPrioritas = '', filterTipe = '') {
+        // Clear existing markers
+        markers.forEach(m => mapStrategi.removeLayer(m.marker));
+        markers.length = 0;
+        
+        lokasiData.forEach(function(lokasi) {
+            // Apply filters
+            if (filterPrioritas && lokasi.prioritas !== filterPrioritas) return;
+            if (filterTipe && lokasi.tipe_lokasi !== filterTipe) return;
+            
+            // Create custom icon based on prioritas
+            const iconColor = prioritasColors[lokasi.prioritas] || '#95a5a6';
+            const customIcon = L.divIcon({
+                className: 'custom-marker',
+                html: `<div style="background:${iconColor}; width:20px; height:20px; border-radius:50%; border:3px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+            
+            const marker = L.marker([parseFloat(lokasi.latitude), parseFloat(lokasi.longitude)], {
+                icon: customIcon
+            }).addTo(mapStrategi);
+            
+            // Create popup content
+            const popupContent = `
+                <div style="min-width:250px">
+                    <h3 style="margin:0 0 10px 0; color:#2c3e50">${lokasi.nama_lokasi}</h3>
+                    <p style="margin:5px 0"><strong>Tipe:</strong> ${lokasi.tipe_lokasi}</p>
+                    <p style="margin:5px 0"><strong>Total Warga:</strong> ${parseInt(lokasi.total_warga).toLocaleString('id-ID')}</p>
+                    <p style="margin:5px 0"><strong>Warga Miskin:</strong> <span style="color:#f39c12">${parseInt(lokasi.warga_miskin).toLocaleString('id-ID')}</span></p>
+                    <p style="margin:5px 0"><strong>Warga Terdampak:</strong> <span style="color:#e74c3c; font-weight:bold">${parseInt(lokasi.warga_terdampak).toLocaleString('id-ID')}</span></p>
+                    <p style="margin:5px 0"><strong>Prioritas:</strong> <span style="color:${iconColor}; font-weight:bold">${lokasi.prioritas.replace('_', ' ')}</span></p>
+                    <p style="margin:5px 0"><strong>Program:</strong> ${lokasi.jumlah_program || 0} program</p>
+                    ${lokasi.keterangan ? `<p style="margin:10px 0 0 0; font-size:12px; color:#666">${lokasi.keterangan}</p>` : ''}
+                </div>
+            `;
+            
+            marker.bindPopup(popupContent);
+            markers.push({id: lokasi.id, marker: marker, lokasi: lokasi});
+        });
+    }
+    
+    // Initial load
+    addMarkers();
+    
+    // Filter function
+    function filterMap() {
+        const prioritas = document.getElementById('filterPrioritas').value;
+        const tipe = document.getElementById('filterTipe').value;
+        addMarkers(prioritas, tipe);
+    }
+    
+    function showLokasiDetail(id) {
+        const lokasi = lokasiData.find(l => l.id == id);
+        if (lokasi) {
+            mapStrategi.setView([parseFloat(lokasi.latitude), parseFloat(lokasi.longitude)], 12);
+            const marker = markers.find(m => m.id == id);
+            if (marker) {
+                marker.marker.openPopup();
+            }
+        }
+    }
+    
+    // Charts
+    const ctxTipe = document.getElementById('chartLokasiTipe');
+    if (ctxTipe) {
+        new Chart(ctxTipe, {
+            type: 'bar',
+            data: {
+                labels: <?= json_encode(array_column($lokasi_by_tipe, 'tipe_lokasi')) ?>,
+                datasets: [{
+                    label: 'Jumlah Lokasi',
+                    data: <?= json_encode(array_column($lokasi_by_tipe, 'jumlah')) ?>,
+                    backgroundColor: '#3498db'
+                }, {
+                    label: 'Total Warga (ribu)',
+                    data: <?= json_encode(array_map(function($v) { return round($v / 1000, 1); }, array_column($lokasi_by_tipe ?? [], 'total_warga'))) ?>,
+                    backgroundColor: '#27ae60',
+                    yAxisID: 'y1'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value + 'K';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    const ctxPrioritas = document.getElementById('chartPrioritas');
+    if (ctxPrioritas) {
+        new Chart(ctxPrioritas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Sangat Tinggi', 'Tinggi', 'Sedang', 'Rendah'],
+                datasets: [{
+                    data: [
+                        <?= $stats_lokasi['sangat_tinggi'] ?? 0 ?>,
+                        <?= $stats_lokasi['tinggi'] ?? 0 ?>,
+                        <?= $stats_lokasi['sedang'] ?? 0 ?>,
+                        <?= $stats_lokasi['rendah'] ?? 0 ?>
+                    ],
+                    backgroundColor: ['#e74c3c', '#f39c12', '#3498db', '#95a5a6']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
         });
     }
     </script>
