@@ -4,6 +4,15 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 ini_set('log_errors', 1);
 
+// Start output buffering
+if (!ob_get_level()) {
+    ob_start();
+}
+
+// Initialize error variables
+$error_msg = null;
+$php_errors = [];
+
 require_once 'config.php';
 
 // Handle Actions
@@ -49,43 +58,111 @@ try {
     error_log("Error loading users: " . $e->getMessage());
 }
 
+$program_list = [];
 try {
-    // Cek apakah kolom 'program' ada di tabel csr_donations
-    $check_column = $pdo->query("SHOW COLUMNS FROM csr_donations LIKE 'program'")->fetch();
+    // Check if program_csr table exists
+    $table_check = $pdo->query("SHOW TABLES LIKE 'program_csr'")->fetch();
     
-    if ($check_column) {
-        // Kolom ada, gunakan query normal
-        $program_list = $pdo->query("SELECT p.*, 
-            u.nama_lengkap as pic_name,
-            (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi,
-            (SELECT SUM(jumlah_penyaluran) FROM program_penyaluran WHERE program_id=p.id) as total_penyaluran,
-            COALESCE(p.progress, 0) as progress
-            FROM program_csr p 
-            LEFT JOIN users u ON p.pic=u.id 
-            ORDER BY p.tanggal_mulai DESC")->fetchAll();
+    if ($table_check) {
+        // Cek apakah kolom 'program' ada di tabel csr_donations
+        try {
+            $check_column = $pdo->query("SHOW COLUMNS FROM csr_donations LIKE 'program'")->fetch();
+        } catch(PDOException $e) {
+            $check_column = false;
+        }
+        
+        if ($check_column) {
+            // Check if program_penyaluran table exists before using subquery
+            $table_penyaluran = $pdo->query("SHOW TABLES LIKE 'program_penyaluran'")->fetch();
+            
+            if ($table_penyaluran) {
+                // Kolom ada, gunakan query normal dengan error handling untuk subquery
+                try {
+                    $program_list = $pdo->query("SELECT p.*, 
+                        u.nama_lengkap as pic_name,
+                        COALESCE((SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program), 0) as total_donasi,
+                        COALESCE((SELECT SUM(jumlah_penyaluran) FROM program_penyaluran WHERE program_id=p.id), 0) as total_penyaluran,
+                        COALESCE(p.progress, 0) as progress
+                        FROM program_csr p 
+                        LEFT JOIN users u ON p.pic=u.id 
+                        ORDER BY p.tanggal_mulai DESC")->fetchAll();
+                } catch(PDOException $e) {
+                    // Fallback jika subquery error
+                    try {
+                        $program_list = $pdo->query("SELECT p.*, 
+                            u.nama_lengkap as pic_name,
+                            0 as total_donasi,
+                            0 as total_penyaluran,
+                            COALESCE(p.progress, 0) as progress
+                            FROM program_csr p 
+                            LEFT JOIN users u ON p.pic=u.id 
+                            ORDER BY p.tanggal_mulai DESC")->fetchAll();
+                    } catch(PDOException $e2) {
+                        $program_list = [];
+                        $error_msg = "Error loading programs: " . $e2->getMessage();
+                    }
+                }
+            } else {
+                // Table program_penyaluran doesn't exist, use simple query
+                try {
+                    $program_list = $pdo->query("SELECT p.*, 
+                        u.nama_lengkap as pic_name,
+                        COALESCE((SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program), 0) as total_donasi,
+                        0 as total_penyaluran,
+                        COALESCE(p.progress, 0) as progress
+                        FROM program_csr p 
+                        LEFT JOIN users u ON p.pic=u.id 
+                        ORDER BY p.tanggal_mulai DESC")->fetchAll();
+                } catch(PDOException $e) {
+                    $program_list = $pdo->query("SELECT p.*, 
+                        u.nama_lengkap as pic_name,
+                        0 as total_donasi,
+                        0 as total_penyaluran,
+                        COALESCE(p.progress, 0) as progress
+                        FROM program_csr p 
+                        LEFT JOIN users u ON p.pic=u.id 
+                        ORDER BY p.tanggal_mulai DESC")->fetchAll();
+                }
+            }
+        } else {
+            // Kolom belum ada, gunakan query tanpa subquery program
+            $program_list = $pdo->query("SELECT p.*, 
+                u.nama_lengkap as pic_name,
+                0 as total_donasi,
+                0 as total_penyaluran,
+                COALESCE(p.progress, 0) as progress
+                FROM program_csr p 
+                LEFT JOIN users u ON p.pic=u.id 
+                ORDER BY p.tanggal_mulai DESC")->fetchAll();
+            if (!isset($error_msg)) {
+                $error_msg = "Kolom 'program' belum ada di tabel csr_donations. Jalankan script fix_csr_donations.sql untuk menambahkan kolom.";
+            }
+        }
     } else {
-        // Kolom belum ada, gunakan query tanpa subquery program
-        $program_list = $pdo->query("SELECT p.*, 
-            u.nama_lengkap as pic_name,
-            0 as total_donasi
-            FROM program_csr p 
-            LEFT JOIN users u ON p.pic=u.id 
-            ORDER BY p.tanggal_mulai DESC")->fetchAll();
-        $error_msg = "Kolom 'program' belum ada di tabel csr_donations. Jalankan script fix_csr_donations.sql untuk menambahkan kolom.";
+        $error_msg = "Tabel 'program_csr' belum ada. Jalankan file database_schema.sql terlebih dahulu.";
     }
 } catch(PDOException $e) {
     $program_list = [];
     $error_msg = "Error: " . $e->getMessage();
     error_log("Error loading program list: " . $e->getMessage());
-    error_log("Stack trace: " . $e->getTraceAsString());
 }
 
 $edit_id = $_GET['edit'] ?? null;
 $edit_program = null;
 if ($edit_id) {
-    $edit_program = $pdo->prepare("SELECT * FROM program_csr WHERE id=?");
-    $edit_program->execute([$edit_id]);
-    $edit_program = $edit_program->fetch();
+    try {
+        $table_check = $pdo->query("SHOW TABLES LIKE 'program_csr'")->fetch();
+        if ($table_check) {
+            $edit_program = $pdo->prepare("SELECT * FROM program_csr WHERE id=?");
+            $edit_program->execute([$edit_id]);
+            $edit_program = $edit_program->fetch();
+        }
+    } catch(PDOException $e) {
+        $edit_program = null;
+        if (!isset($error_msg)) {
+            $error_msg = "Error loading program for edit: " . $e->getMessage();
+        }
+    }
 }
 
 // Handle View Detail Program
@@ -100,100 +177,182 @@ $top_indikator = [];
 
 if ($view_id) {
     try {
-        // Get program detail
-        $view_program = $pdo->prepare("
-            SELECT p.*, 
-                u.nama_lengkap as pic_name,
-                (SELECT SUM(jumlah) FROM csr_donations WHERE program=p.nama_program) as total_donasi,
-                (SELECT SUM(jumlah_penyaluran) FROM program_penyaluran WHERE program_id=p.id) as total_penyaluran,
-                (SELECT COUNT(*) FROM program_penyaluran WHERE program_id=p.id) as jumlah_penyaluran,
-                (SELECT COUNT(*) FROM program_dampak WHERE program_id=p.id) as jumlah_dampak
-            FROM program_csr p 
-            LEFT JOIN users u ON p.pic=u.id 
-            WHERE p.id=?
-        ");
-        $view_program->execute([$view_id]);
-        $view_program = $view_program->fetch();
-        
-        if ($view_program) {
-            // Get penyaluran data
-            $view_penyaluran = $pdo->prepare("
-                SELECT * FROM program_penyaluran 
-                WHERE program_id = ? 
-                ORDER BY tanggal_penyaluran DESC
-            ");
-            $view_penyaluran->execute([$view_id]);
-            $view_penyaluran = $view_penyaluran->fetchAll();
-            
-            // Get dampak data
-            $view_dampak = $pdo->prepare("
-                SELECT * FROM program_dampak 
-                WHERE program_id = ? 
-                ORDER BY tanggal_pengukuran DESC
-            ");
-            $view_dampak->execute([$view_id]);
-            $view_dampak = $view_dampak->fetchAll();
-            
-            // Get penyaluran by month for chart
-            try {
-                $penyaluran_by_month = $pdo->prepare("
-                    SELECT 
-                        DATE_FORMAT(tanggal_penyaluran, '%Y-%m') as bulan,
-                        DATE_FORMAT(tanggal_penyaluran, '%M %Y') as bulan_label,
-                        COUNT(*) as jumlah,
-                        SUM(jumlah_penyaluran) as total
-                    FROM program_penyaluran
-                    WHERE program_id = ?
-                    GROUP BY DATE_FORMAT(tanggal_penyaluran, '%Y-%m'), DATE_FORMAT(tanggal_penyaluran, '%M %Y')
-                    ORDER BY bulan ASC
-                ");
-                $penyaluran_by_month->execute([$view_id]);
-                $penyaluran_by_month = $penyaluran_by_month->fetchAll();
-            } catch(PDOException $e) {
-                $penyaluran_by_month = [];
+        // Check if program_csr table exists
+        $table_check = $pdo->query("SHOW TABLES LIKE 'program_csr'")->fetch();
+        if (!$table_check) {
+            $view_program = null;
+            if (!isset($error_msg)) {
+                $error_msg = "Tabel 'program_csr' belum ada. Jalankan database_schema.sql terlebih dahulu.";
             }
+        } else {
+            // Get program detail - simplified without subqueries that might fail
+            $view_program = $pdo->prepare("
+                SELECT p.*, 
+                    u.nama_lengkap as pic_name
+                FROM program_csr p 
+                LEFT JOIN users u ON p.pic=u.id 
+                WHERE p.id=?
+            ");
+            $view_program->execute([$view_id]);
+            $view_program = $view_program->fetch();
             
-            // Get dampak by kategori for chart
-            try {
-                $dampak_by_kategori = $pdo->prepare("
-                    SELECT 
-                        kategori_dampak,
-                        COUNT(*) as jumlah,
-                        AVG(nilai) as rata_rata
-                    FROM program_dampak
-                    WHERE program_id = ?
-                    GROUP BY kategori_dampak
-                ");
-                $dampak_by_kategori->execute([$view_id]);
-                $dampak_by_kategori = $dampak_by_kategori->fetchAll();
-            } catch(PDOException $e) {
-                $dampak_by_kategori = [];
-            }
-            
-            // Get top indikator for chart
-            try {
-                $top_indikator = $pdo->prepare("
-                    SELECT 
-                        indikator,
-                        COUNT(*) as jumlah_pengukuran,
-                        AVG(nilai) as rata_rata_nilai,
-                        MAX(nilai) as nilai_max,
-                        MIN(nilai) as nilai_min
-                    FROM program_dampak
-                    WHERE program_id = ?
-                    GROUP BY indikator
-                    ORDER BY jumlah_pengukuran DESC
-                    LIMIT 10
-                ");
-                $top_indikator->execute([$view_id]);
-                $top_indikator = $top_indikator->fetchAll();
-            } catch(PDOException $e) {
-                $top_indikator = [];
+            if ($view_program) {
+                // Initialize default values
+                $view_program['total_donasi'] = 0;
+                $view_program['total_penyaluran'] = 0;
+                $view_program['jumlah_penyaluran'] = 0;
+                $view_program['jumlah_dampak'] = 0;
+                
+                // Get stats safely - check each table first
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'csr_donations'")->fetch();
+                    if ($table_check) {
+                        $col_check = $pdo->query("SHOW COLUMNS FROM csr_donations LIKE 'program'")->fetch();
+                        if ($col_check) {
+                            $stats = $pdo->prepare("SELECT COALESCE(SUM(jumlah), 0) as total FROM csr_donations WHERE program=?");
+                            $stats->execute([$view_program['nama_program']]);
+                            $result = $stats->fetch();
+                            if ($result) {
+                                $view_program['total_donasi'] = $result['total'];
+                            }
+                        }
+                    }
+                } catch(PDOException $e) {
+                    // Ignore error, use default 0
+                }
+                
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_penyaluran'")->fetch();
+                    if ($table_check) {
+                        $stats = $pdo->prepare("SELECT COALESCE(SUM(jumlah_penyaluran), 0) as total, COUNT(*) as jumlah FROM program_penyaluran WHERE program_id=?");
+                        $stats->execute([$view_id]);
+                        $result = $stats->fetch();
+                        if ($result) {
+                            $view_program['total_penyaluran'] = $result['total'];
+                            $view_program['jumlah_penyaluran'] = $result['jumlah'];
+                        }
+                    }
+                } catch(PDOException $e) {
+                    // Ignore error, use default 0
+                }
+                
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_dampak'")->fetch();
+                    if ($table_check) {
+                        $stats = $pdo->prepare("SELECT COUNT(*) as jumlah FROM program_dampak WHERE program_id=?");
+                        $stats->execute([$view_id]);
+                        $result = $stats->fetch();
+                        if ($result) {
+                            $view_program['jumlah_dampak'] = $result['jumlah'];
+                        }
+                    }
+                } catch(PDOException $e) {
+                    // Ignore error, use default 0
+                }
+                
+                // Get penyaluran data - check table exists first
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_penyaluran'")->fetch();
+                    if ($table_check) {
+                        $view_penyaluran = $pdo->prepare("SELECT * FROM program_penyaluran WHERE program_id = ? ORDER BY tanggal_penyaluran DESC");
+                        $view_penyaluran->execute([$view_id]);
+                        $view_penyaluran = $view_penyaluran->fetchAll();
+                    }
+                } catch(PDOException $e) {
+                    $view_penyaluran = [];
+                }
+                
+                // Get dampak data - check table exists first
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_dampak'")->fetch();
+                    if ($table_check) {
+                        $view_dampak = $pdo->prepare("SELECT * FROM program_dampak WHERE program_id = ? ORDER BY tanggal_pengukuran DESC");
+                        $view_dampak->execute([$view_id]);
+                        $view_dampak = $view_dampak->fetchAll();
+                    }
+                } catch(PDOException $e) {
+                    $view_dampak = [];
+                }
+                
+                // Get penyaluran by month for chart
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_penyaluran'")->fetch();
+                    if ($table_check) {
+                        $penyaluran_by_month = $pdo->prepare("
+                            SELECT 
+                                DATE_FORMAT(tanggal_penyaluran, '%Y-%m') as bulan,
+                                DATE_FORMAT(tanggal_penyaluran, '%M %Y') as bulan_label,
+                                COUNT(*) as jumlah,
+                                SUM(jumlah_penyaluran) as total
+                            FROM program_penyaluran
+                            WHERE program_id = ?
+                            GROUP BY DATE_FORMAT(tanggal_penyaluran, '%Y-%m'), DATE_FORMAT(tanggal_penyaluran, '%M %Y')
+                            ORDER BY bulan ASC
+                        ");
+                        $penyaluran_by_month->execute([$view_id]);
+                        $penyaluran_by_month = $penyaluran_by_month->fetchAll();
+                    }
+                } catch(PDOException $e) {
+                    $penyaluran_by_month = [];
+                }
+                
+                // Get dampak by kategori for chart
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_dampak'")->fetch();
+                    if ($table_check) {
+                        $dampak_by_kategori = $pdo->prepare("
+                            SELECT 
+                                kategori_dampak,
+                                COUNT(*) as jumlah,
+                                AVG(nilai) as rata_rata
+                            FROM program_dampak
+                            WHERE program_id = ?
+                            GROUP BY kategori_dampak
+                        ");
+                        $dampak_by_kategori->execute([$view_id]);
+                        $dampak_by_kategori = $dampak_by_kategori->fetchAll();
+                    }
+                } catch(PDOException $e) {
+                    $dampak_by_kategori = [];
+                }
+                
+                // Get top indikator for chart
+                try {
+                    $table_check = $pdo->query("SHOW TABLES LIKE 'program_dampak'")->fetch();
+                    if ($table_check) {
+                        $top_indikator = $pdo->prepare("
+                            SELECT 
+                                indikator,
+                                COUNT(*) as jumlah_pengukuran,
+                                AVG(nilai) as rata_rata_nilai,
+                                MAX(nilai) as nilai_max,
+                                MIN(nilai) as nilai_min
+                            FROM program_dampak
+                            WHERE program_id = ?
+                            GROUP BY indikator
+                            ORDER BY jumlah_pengukuran DESC
+                            LIMIT 10
+                        ");
+                        $top_indikator->execute([$view_id]);
+                        $top_indikator = $top_indikator->fetchAll();
+                    }
+                } catch(PDOException $e) {
+                    $top_indikator = [];
+                }
             }
         }
     } catch(PDOException $e) {
         $view_program = null;
-        $error_msg = "Error: " . $e->getMessage();
+        if (!isset($error_msg)) {
+            $error_msg = "Error loading program detail: " . $e->getMessage();
+        }
+        error_log("Error in view program (ID: $view_id): " . $e->getMessage());
+    } catch(Exception $e) {
+        $view_program = null;
+        if (!isset($error_msg)) {
+            $error_msg = "Error: " . $e->getMessage();
+        }
+        error_log("General error in view program: " . $e->getMessage());
     }
 }
 ?>
@@ -271,13 +430,15 @@ table tr:hover { background:#f5f5f5 }
         $last_error = error_get_last();
         $all_errors = [];
         
-        // Get any output buffer errors
-        $output = ob_get_contents();
-        if ($output && (strpos($output, 'Warning') !== false || strpos($output, 'Error') !== false || strpos($output, 'Fatal') !== false)) {
-            $all_errors[] = ['type' => 'Output Buffer', 'message' => $output, 'file' => 'Output Buffer', 'line' => 0];
+        // Get any output buffer errors (only if buffer is active)
+        if (ob_get_level() > 0) {
+            $output = ob_get_contents();
+            if ($output && (strpos($output, 'Warning') !== false || strpos($output, 'Error') !== false || strpos($output, 'Fatal') !== false)) {
+                $all_errors[] = ['type' => E_WARNING, 'message' => substr($output, 0, 500), 'file' => 'Output Buffer', 'line' => 0];
+            }
         }
         
-        if ($last_error) {
+        if ($last_error && $last_error['type'] <= E_WARNING) {
             $all_errors[] = $last_error;
         }
     ?>
@@ -2042,6 +2203,8 @@ window.onclick = function(event) {
 </html>
 <?php
 // Flush output buffer
-ob_end_flush();
+if (ob_get_level() > 0) {
+    @ob_end_flush();
+}
 ?>
 
