@@ -1,4 +1,9 @@
 <?php
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
+
 require_once 'config.php';
 
 // Handle Actions
@@ -40,6 +45,8 @@ try {
     $users = $pdo->query("SELECT id, nama_lengkap FROM users WHERE role IN ('admin','manager') ORDER BY nama_lengkap")->fetchAll();
 } catch(PDOException $e) {
     $users = [];
+    if (!isset($error_msg)) $error_msg = "Error loading users: " . $e->getMessage();
+    error_log("Error loading users: " . $e->getMessage());
 }
 
 try {
@@ -69,6 +76,8 @@ try {
 } catch(PDOException $e) {
     $program_list = [];
     $error_msg = "Error: " . $e->getMessage();
+    error_log("Error loading program list: " . $e->getMessage());
+    error_log("Stack trace: " . $e->getTraceAsString());
 }
 
 $edit_id = $_GET['edit'] ?? null;
@@ -252,6 +261,141 @@ table tr:hover { background:#f5f5f5 }
         <?php if(strpos($error_msg, 'program') !== false): ?>
         <br><br><strong>Solusi:</strong> Jalankan file <code>fix_csr_donations_safe.sql</code> untuk menambahkan kolom 'program' ke tabel csr_donations.
         <?php endif; ?>
+    </div>
+    <?php endif; ?>
+    
+    <?php 
+    // Display all PHP errors and warnings
+    $display_errors = isset($_GET['debug']) || isset($_GET['show_errors']);
+    if ($display_errors):
+        $last_error = error_get_last();
+        $all_errors = [];
+        
+        // Get any output buffer errors
+        $output = ob_get_contents();
+        if ($output && (strpos($output, 'Warning') !== false || strpos($output, 'Error') !== false || strpos($output, 'Fatal') !== false)) {
+            $all_errors[] = ['type' => 'Output Buffer', 'message' => $output, 'file' => 'Output Buffer', 'line' => 0];
+        }
+        
+        if ($last_error) {
+            $all_errors[] = $last_error;
+        }
+    ?>
+    <div class="alert" style="background:#fff3cd; color:#856404; border:2px solid #ffc107; margin-bottom:20px">
+        <strong>🔍 Error Debug Information</strong>
+        <button onclick="this.parentElement.style.display='none'" style="float:right; background:#856404; color:#fff; border:none; padding:5px 10px; border-radius:3px; cursor:pointer">Tutup</button>
+        <div style="margin-top:15px; font-family:monospace; font-size:12px; background:#f8f9fa; padding:15px; border-radius:5px; max-height:400px; overflow-y:auto; clear:both">
+            <?php if (!empty($all_errors)): ?>
+            <strong style="color:#e74c3c">PHP Errors/Warnings:</strong>
+            <ul style="margin:10px 0; padding-left:20px">
+                <?php foreach($all_errors as $err): ?>
+                <li style="margin:5px 0">
+                    <strong style="color:#e74c3c">
+                        <?php 
+                        $error_types = [
+                            E_ERROR => 'Fatal Error',
+                            E_WARNING => 'Warning',
+                            E_PARSE => 'Parse Error',
+                            E_NOTICE => 'Notice',
+                            E_CORE_ERROR => 'Core Error',
+                            E_CORE_WARNING => 'Core Warning',
+                            E_COMPILE_ERROR => 'Compile Error',
+                            E_COMPILE_WARNING => 'Compile Warning',
+                            E_USER_ERROR => 'User Error',
+                            E_USER_WARNING => 'User Warning',
+                            E_USER_NOTICE => 'User Notice',
+                            E_STRICT => 'Strict',
+                            E_RECOVERABLE_ERROR => 'Recoverable Error',
+                            E_DEPRECATED => 'Deprecated',
+                            E_USER_DEPRECATED => 'User Deprecated'
+                        ];
+                        echo $error_types[$err['type']] ?? 'Error';
+                        ?>:
+                    </strong>
+                    <span style="color:#2c3e50"><?= htmlspecialchars($err['message']) ?></span>
+                    <?php if(isset($err['file']) && $err['file']): ?>
+                    <br><small style="color:#7f8c8d">
+                        File: <strong><?= htmlspecialchars($err['file']) ?></strong>
+                        <?php if(isset($err['line'])): ?>
+                        (Line: <strong><?= $err['line'] ?></strong>)
+                        <?php endif; ?>
+                    </small>
+                    <?php endif; ?>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php else: ?>
+            <p style="color:#27ae60">✓ Tidak ada error PHP yang terdeteksi</p>
+            <?php endif; ?>
+            
+            <hr style="margin:15px 0; border-color:#ddd">
+            
+            <strong>System Information:</strong>
+            <ul style="margin:10px 0; padding-left:20px; list-style:none">
+                <li><strong>PHP Version:</strong> <?= phpversion() ?></li>
+                <li><strong>Memory Usage:</strong> <?= number_format(memory_get_usage() / 1024 / 1024, 2) ?> MB</li>
+                <li><strong>Peak Memory:</strong> <?= number_format(memory_get_peak_usage() / 1024 / 1024, 2) ?> MB</li>
+                <li><strong>Max Execution Time:</strong> <?= ini_get('max_execution_time') ?>s</li>
+                <li><strong>Error Reporting:</strong> <?= error_reporting() ?></li>
+            </ul>
+            
+            <hr style="margin:15px 0; border-color:#ddd">
+            
+            <strong>Database Connection:</strong>
+            <ul style="margin:10px 0; padding-left:20px; list-style:none">
+                <?php 
+                try {
+                    $pdo->query("SELECT 1");
+                    echo "<li style='color:green'>✓ Database connection: <strong>OK</strong></li>";
+                } catch(PDOException $e) {
+                    echo "<li style='color:red'>✗ Database connection: <strong>ERROR</strong></li>";
+                    echo "<li style='color:red; margin-left:20px'>" . htmlspecialchars($e->getMessage()) . "</li>";
+                }
+                ?>
+            </ul>
+            
+            <hr style="margin:15px 0; border-color:#ddd">
+            
+            <strong>Required Tables Status:</strong>
+            <ul style="margin:10px 0; padding-left:20px; list-style:none">
+                <?php 
+                $required_tables = [
+                    'program_csr' => 'Program CSR',
+                    'users' => 'Users',
+                    'csr_donations' => 'CSR Donations',
+                    'lokasi_strategis' => 'Lokasi Strategis',
+                    'program_penyaluran' => 'Program Penyaluran',
+                    'program_dampak' => 'Program Dampak',
+                    'program_lokasi' => 'Program Lokasi Mapping'
+                ];
+                
+                foreach($required_tables as $table => $label) {
+                    try {
+                        $pdo->query("SELECT 1 FROM `$table` LIMIT 1");
+                        echo "<li style='color:green'>✓ Table <strong>'$table'</strong> ($label): EXISTS</li>";
+                    } catch(PDOException $e) {
+                        echo "<li style='color:red'>✗ Table <strong>'$table'</strong> ($label): NOT FOUND</li>";
+                        echo "<li style='color:red; margin-left:20px; font-size:11px'>" . htmlspecialchars($e->getMessage()) . "</li>";
+                    }
+                }
+                ?>
+            </ul>
+            
+            <hr style="margin:15px 0; border-color:#ddd">
+            
+            <strong>Variable Status:</strong>
+            <ul style="margin:10px 0; padding-left:20px; list-style:none; font-size:11px">
+                <li><strong>$program_list:</strong> <?= isset($program_list) ? count($program_list) . ' items' : 'NOT SET' ?></li>
+                <li><strong>$view_program:</strong> <?= isset($view_program) ? ($view_program ? 'SET' : 'NULL') : 'NOT SET' ?></li>
+                <li><strong>$lokasi_list:</strong> <?= isset($lokasi_list) ? count($lokasi_list) . ' items' : 'NOT SET' ?></li>
+                <li><strong>$penyaluran_list:</strong> <?= isset($penyaluran_list) ? count($penyaluran_list) . ' items' : 'NOT SET' ?></li>
+                <li><strong>$dampak_list:</strong> <?= isset($dampak_list) ? count($dampak_list) . ' items' : 'NOT SET' ?></li>
+            </ul>
+        </div>
+        <div style="margin-top:10px; font-size:11px; color:#666">
+            💡 Untuk melihat error ini, tambahkan <code>?debug=1</code> atau <code>?show_errors=1</code> di URL
+            <br>💡 Error log disimpan di: <code><?= __DIR__ ?>/php_errors.log</code>
+        </div>
     </div>
     <?php endif; ?>
     
@@ -1896,4 +2040,8 @@ window.onclick = function(event) {
 
 </body>
 </html>
+<?php
+// Flush output buffer
+ob_end_flush();
+?>
 
