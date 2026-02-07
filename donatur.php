@@ -34,6 +34,22 @@ try {
             FROM donatur d 
             LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
             ORDER BY d.nama")->fetchAll();
+        
+        // Ambil data donasi untuk setiap donatur (untuk modal detail)
+        $donatur_donasi = [];
+        foreach($donatur_list as $d) {
+            $donasi_list = $pdo->prepare("SELECT * FROM csr_donations WHERE donatur_id = ? ORDER BY tanggal DESC LIMIT 50");
+            $donasi_list->execute([$d['id']]);
+            $donatur_donasi[$d['id']] = $donasi_list->fetchAll();
+        }
+        
+        // Hitung max total donasi untuk normalisasi bar chart
+        $max_total = 0;
+        foreach($donatur_list as $d) {
+            if($d['total_donasi'] > $max_total) {
+                $max_total = $d['total_donasi'];
+            }
+        }
     } else {
         // Kolom belum ada, gunakan query tanpa subquery donatur_id
         $donatur_list = $pdo->query("SELECT d.*, 
@@ -44,10 +60,14 @@ try {
             LEFT JOIN klasifikasi_donatur k ON d.klasifikasi_id=k.id
             ORDER BY d.nama")->fetchAll();
         $error_msg = "Kolom 'donatur_id' belum ada di tabel csr_donations. Jalankan file database_schema.sql untuk memperbaiki struktur tabel.";
+        $donatur_donasi = [];
+        $max_total = 0;
     }
 } catch(PDOException $e) {
     $donatur_list = [];
     $error_msg = "Error: " . $e->getMessage();
+    $donatur_donasi = [];
+    $max_total = 0;
 }
 
 // Get klasifikasi list for dropdown
@@ -106,6 +126,9 @@ table tr:hover { background:#f5f5f5 }
 .badge-yayasan { background:#9b59b6; color:#fff }
 .badge-lembaga { background:#27ae60; color:#fff }
 .text-success { color:#27ae60; font-weight:600 }
+.bar-chart-container { transition:transform 0.2s }
+.bar-chart-container:hover { transform:scale(1.02) }
+.bar-chart-container:hover .bar-fill { background:#229954 !important }
 </style>
 </head>
 <body>
@@ -178,13 +201,38 @@ table tr:hover { background:#f5f5f5 }
                     </td>
                 </tr>
                 <?php else: ?>
-                <?php foreach($donatur_list as $d): ?>
+                <?php foreach($donatur_list as $d): 
+                    $total_donasi = (float)($d['total_donasi'] ?? 0);
+                    $jumlah_donasi = (int)($d['jumlah_donasi'] ?? 0);
+                    $bar_width = $max_total > 0 ? ($total_donasi / $max_total * 100) : 0;
+                    if($bar_width > 100) $bar_width = 100;
+                ?>
                 <tr style="<?= $d['warna'] ? 'border-left: 4px solid ' . htmlspecialchars($d['warna']) : '' ?>">
                     <td>
-                        <strong><?= htmlspecialchars($d['nama']) ?></strong>
-                        <?php if($d['nama_perusahaan']): ?>
-                        <br><small style="color:#666"><?= htmlspecialchars($d['nama_perusahaan']) ?></small>
-                        <?php endif; ?>
+                        <div style="display:flex; align-items:center; gap:10px">
+                            <div style="flex:1">
+                                <strong><?= htmlspecialchars($d['nama']) ?></strong>
+                                <?php if($d['nama_perusahaan']): ?>
+                                <br><small style="color:#666"><?= htmlspecialchars($d['nama_perusahaan']) ?></small>
+                                <?php endif; ?>
+                            </div>
+                            <?php if($jumlah_donasi > 0): ?>
+                            <div class="bar-chart-container" style="flex:2; min-width:150px; cursor:pointer" onclick="showDonasiDetail(<?= $d['id'] ?>, <?= json_encode($d['nama']) ?>)" title="Klik untuk melihat detail donasi">
+                                <div style="background:#e8f5e9; border-radius:4px; height:24px; position:relative; overflow:hidden; box-shadow:inset 0 1px 3px rgba(0,0,0,0.1)">
+                                    <div class="bar-fill" style="background:#27ae60; height:100%; width:<?= $bar_width ?>%; transition:width 0.3s, background 0.2s; display:flex; align-items:center; justify-content:flex-end; padding-right:5px; box-shadow:0 1px 3px rgba(0,0,0,0.2)">
+                                        <span style="color:#fff; font-size:11px; font-weight:bold; text-shadow:0 1px 2px rgba(0,0,0,0.3)"><?= $jumlah_donasi ?>x</span>
+                                    </div>
+                                </div>
+                                <small style="color:#666; font-size:10px; display:block; margin-top:2px; font-weight:500"><?= formatRupiah($total_donasi) ?></small>
+                            </div>
+                            <?php else: ?>
+                            <div style="flex:2; min-width:150px">
+                                <div style="background:#f5f5f5; border-radius:4px; height:24px; display:flex; align-items:center; justify-content:center">
+                                    <span style="color:#999; font-size:11px">Belum ada donasi</span>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
                     </td>
                     <td>
                         <?php if($d['nama_klasifikasi']): ?>
@@ -340,9 +388,77 @@ table tr:hover { background:#f5f5f5 }
         </div>
     </div>
     
+    <!-- Modal Detail Donasi -->
+    <div id="modalDonasiDetail" class="modal">
+        <div class="modal-content" style="max-width:900px">
+            <span class="close" onclick="document.getElementById('modalDonasiDetail').style.display='none'">&times;</span>
+            <h2 id="modalDonasiTitle">Detail Donasi</h2>
+            <div id="modalDonasiContent">
+                <p>Memuat data...</p>
+            </div>
+        </div>
+    </div>
+    
 </div>
 
 <script>
+// Data donasi untuk setiap donatur (dari PHP)
+const donaturDonasiData = <?= json_encode($donatur_donasi ?? [], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+function showDonasiDetail(donaturId, namaDonatur) {
+    const modal = document.getElementById('modalDonasiDetail');
+    const title = document.getElementById('modalDonasiTitle');
+    const content = document.getElementById('modalDonasiContent');
+    
+    title.textContent = 'Detail Donasi - ' + namaDonatur;
+    
+    const donasiList = donaturDonasiData[donaturId] || [];
+    
+    if (donasiList.length === 0) {
+        content.innerHTML = '<p style="text-align:center; padding:40px; color:#999">Belum ada data donasi untuk donatur ini.</p>';
+    } else {
+        let total = 0;
+        let html = '<div style="margin-bottom:20px">';
+        html += '<div class="grid" style="grid-template-columns:repeat(3,1fr); gap:15px; margin-bottom:20px">';
+        html += '<div class="card"><strong>Total Donasi</strong><div style="font-size:24px; color:#27ae60">' + formatRupiahJS(donasiList.reduce((sum, d) => sum + parseFloat(d.jumlah || 0), 0)) + '</div></div>';
+        html += '<div class="card"><strong>Jumlah Donasi</strong><div style="font-size:24px; color:#3498db">' + donasiList.length + 'x</div></div>';
+        html += '<div class="card"><strong>Rata-rata</strong><div style="font-size:24px; color:#f39c12">' + formatRupiahJS(donasiList.reduce((sum, d) => sum + parseFloat(d.jumlah || 0), 0) / donasiList.length) + '</div></div>';
+        html += '</div></div>';
+        
+        html += '<table style="width:100%; margin-top:20px">';
+        html += '<thead><tr><th>Tanggal</th><th>Jumlah</th><th>Kategori</th><th>Metode</th><th>Program</th><th>Status</th></tr></thead>';
+        html += '<tbody>';
+        
+        donasiList.forEach(function(d) {
+            const statusColor = d.status === 'verified' ? '#27ae60' : d.status === 'pending' ? '#f39c12' : '#e74c3c';
+            const statusText = d.status === 'verified' ? '✓ Verified' : d.status === 'pending' ? '⏳ Pending' : '✗ Rejected';
+            html += '<tr>';
+            html += '<td>' + formatDateJS(d.tanggal) + '</td>';
+            html += '<td class="text-success"><strong>' + formatRupiahJS(parseFloat(d.jumlah || 0)) + '</strong></td>';
+            html += '<td>' + (d.kategori || '-') + '</td>';
+            html += '<td>' + (d.metode_pembayaran || '-') + '</td>';
+            html += '<td>' + (d.program || '-') + '</td>';
+            html += '<td><span style="color:' + statusColor + '; font-weight:bold">' + statusText + '</span></td>';
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        content.innerHTML = html;
+    }
+    
+    modal.style.display = 'block';
+}
+
+function formatRupiahJS(angka) {
+    return 'Rp ' + angka.toLocaleString('id-ID');
+}
+
+function formatDateJS(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 function togglePerusahaanFields() {
     const tipe = document.getElementById('tipe_donatur').value;
     const perusahaanFields = document.getElementById('perusahaan_fields');
