@@ -208,47 +208,7 @@ if ($view_id) {
     <title>Manajemen Program CSR</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        * { margin:0; padding:0; box-sizing:border-box }
-        body { font-family:Arial,sans-serif; background:#f5f5f5; padding:20px }
-        .navbar { background:#2c3e50; color:#fff; padding:15px 20px; margin:-20px -20px 20px -20px }
-        .navbar h1 { font-size:20px }
-        .container { max-width:1200px; margin:0 auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1) }
-        .alert { padding:15px; margin-bottom:20px; border-radius:5px }
-        .alert-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb }
-        .alert-error { background:#f8d7da; color:#721c24; border:1px solid #f5c6cb }
-        .btn { padding:10px 20px; background:#3498db; color:#fff; border:none; border-radius:5px; cursor:pointer; text-decoration:none; display:inline-block; margin:5px }
-        .btn:hover { background:#2980b9 }
-        .btn-danger { background:#e74c3c }
-        .btn-danger:hover { background:#c0392b }
-        .btn-success { background:#27ae60 }
-        .btn-success:hover { background:#229954 }
-        table { width:100%; border-collapse:collapse; margin-top:20px }
-        table th, table td { padding:12px; text-align:left; border-bottom:1px solid #ddd }
-        table th { background:#34495e; color:#fff; font-weight:600 }
-        table tr:hover { background:#f8f9fa }
-        .badge { padding:5px 10px; border-radius:3px; font-size:12px; font-weight:600; display:inline-block }
-        .badge-planning { background:#95a5a6; color:#fff }
-        .badge-ongoing { background:#3498db; color:#fff }
-        .badge-completed { background:#27ae60; color:#fff }
-        .badge-cancelled { background:#e74c3c; color:#fff }
-        .modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5) }
-        .modal-content { background:#fff; margin:5% auto; padding:20px; border-radius:8px; width:90%; max-width:800px; max-height:90vh; overflow-y:auto }
-        .form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px }
-        .detail-section { background:#f8f9fa; padding:15px; border-radius:5px; margin-bottom:20px }
-        .detail-section h3 { margin-bottom:15px; color:#2c3e50; border-bottom:2px solid #3498db; padding-bottom:5px }
-        .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px }
-        .detail-item { margin-bottom:10px }
-        .detail-item label { font-weight:600; color:#555; display:block; margin-bottom:3px }
-        .detail-item span { color:#333 }
-        .form-group { margin-bottom:15px }
-        .form-group label { display:block; margin-bottom:5px; font-weight:600 }
-        .form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:5px; font-size:14px }
-        .form-group textarea { min-height:100px; resize:vertical }
-        .close { float:right; font-size:28px; font-weight:bold; cursor:pointer; color:#aaa }
-        .close:hover { color:#000 }
-        .text-right { text-align:right }
-    </style>
+    <?= getCssLink() ?>
 </head>
 <body>
 
@@ -258,8 +218,8 @@ if ($view_id) {
 </div>
 
 <div class="container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
-        <h1>📋 Manajemen Program CSR</h1>
+    <div class="card-header">
+        <h1 style="margin:0">📋 Manajemen Program CSR</h1>
         <button class="btn btn-success" onclick="openModal('add')">+ Tambah Program</button>
     </div>
     

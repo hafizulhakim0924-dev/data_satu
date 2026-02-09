@@ -43,5 +43,9 @@ function getNavMenu($current = '') {
     $html .= '</nav>';
     return $html;
 }
+
+function getCssLink() {
+    return '<link rel="stylesheet" href="assets/css/style.css">';
+}
 ?>
 

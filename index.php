@@ -52,35 +52,10 @@ $trend = $pdo->query("
 <html>
 <head>
 <title>Rangkiang Peduli Negeri - Dashboard</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<?= getCssLink() ?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-* { margin:0; padding:0; box-sizing:border-box }
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f4f6f8 }
-.navbar { background:#2c3e50; color:#fff; padding:15px 20px; box-shadow:0 2px 5px rgba(0,0,0,0.1) }
-.navbar h1 { display:inline-block; margin-right:30px; font-size:20px }
-.nav-menu { display:inline-block; vertical-align:middle }
-.nav-menu a { color:#fff; text-decoration:none; padding:10px 15px; margin:0 5px; border-radius:5px; display:inline-block; transition:background 0.3s }
-.nav-menu a:hover, .nav-menu a.active { background:#34495e }
-.container { max-width:1400px; margin:20px auto; padding:0 20px }
-.card { background:#fff; padding:20px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.1) }
-.grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap:15px }
-.big { font-size:22px; font-weight:bold; color:#2c3e50 }
-.btn { display:inline-block; padding:10px 20px; background:#3498db; color:#fff; text-decoration:none; border-radius:5px; border:none; cursor:pointer; margin:5px }
-.btn:hover { background:#2980b9 }
-.btn-success { background:#27ae60 }
-.btn-danger { background:#e74c3c }
-.btn-warning { background:#f39c12 }
-table { width:100%; border-collapse:collapse; margin-top:15px }
-table th, table td { padding:12px; text-align:left; border-bottom:1px solid #ddd }
-table th { background:#34495e; color:#fff; font-weight:600 }
-table tr:hover { background:#f5f5f5 }
-.form-group { margin-bottom:15px }
-.form-group label { display:block; margin-bottom:5px; font-weight:600; color:#2c3e50 }
-.form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:5px; font-size:14px }
-.form-group textarea { min-height:100px; resize:vertical }
-.text-success { color:#27ae60; font-weight:600 }
-.text-danger { color:#e74c3c }
-</style>
 </head>
 <body>
 
@@ -90,24 +65,29 @@ table tr:hover { background:#f5f5f5 }
 </div>
 
 <div class="container">
-<h1 style="margin:20px 0">📊 Dashboard</h1>
+    <div class="card-header">
+        <h1 style="margin:0">📊 Dashboard</h1>
+    </div>
 
-<div class="grid">
-    <div class="card">
-        Total Donasi
-        <div class="big">Rp <?= number_format($total ?? 0,0,',','.') ?></div>
+    <div class="grid">
+        <div class="stat-card">
+            <div class="icon">💰</div>
+            <h3>Total Donasi</h3>
+            <div class="big"><?= formatRupiah($total ?? 0) ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">📅</div>
+            <h3>Hari Ini</h3>
+            <div class="big"><?= formatRupiah($hari_ini ?? 0) ?></div>
+            <small style="opacity:0.8">Kemarin: <?= formatRupiah($kemarin ?? 0) ?></small>
+        </div>
+        <div class="stat-card">
+            <div class="icon">📆</div>
+            <h3>Bulan Ini</h3>
+            <div class="big"><?= formatRupiah($bulan_ini ?? 0) ?></div>
+            <small style="opacity:0.8">Bulan Lalu: <?= formatRupiah($bulan_lalu ?? 0) ?></small>
+        </div>
     </div>
-    <div class="card">
-        Hari Ini
-        <div class="big">Rp <?= number_format($hari_ini ?? 0,0,',','.') ?></div>
-        Kemarin: Rp <?= number_format($kemarin ?? 0,0,',','.') ?>
-    </div>
-    <div class="card">
-        Bulan Ini
-        <div class="big">Rp <?= number_format($bulan_ini ?? 0,0,',','.') ?></div>
-        Bulan Lalu: Rp <?= number_format($bulan_lalu ?? 0,0,',','.') ?>
-    </div>
-</div>
 
 <?php
 // Get additional statistics
@@ -157,48 +137,52 @@ $daily_total = $pdo->query("
 ")->fetch(PDO::FETCH_ASSOC);
 ?>
 
-<div class="grid">
-    <div class="card">
-        <h3>Total Donatur</h3>
-        <div class="big"><?= number_format($total_donatur ?? 0, 0, ',', '.') ?></div>
+    <div class="grid">
+        <div class="stat-card">
+            <div class="icon">🤝</div>
+            <h3>Total Donatur</h3>
+            <div class="big"><?= number_format($total_donatur ?? 0, 0, ',', '.') ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">👥</div>
+            <h3>Total Karyawan</h3>
+            <div class="big"><?= number_format($total_karyawan, 0, ',', '.') ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">🙋</div>
+            <h3>Total Volunteer</h3>
+            <div class="big"><?= number_format($total_volunteer, 0, ',', '.') ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">📋</div>
+            <h3>Total Program</h3>
+            <div class="big"><?= number_format($total_program ?? 0, 0, ',', '.') ?></div>
+            <small style="opacity:0.8">Ongoing: <?= $program_ongoing ?? 0 ?></small>
+        </div>
     </div>
-    <div class="card">
-        <h3>Total Karyawan</h3>
-        <div class="big"><?= number_format($total_karyawan, 0, ',', '.') ?></div>
-    </div>
-    <div class="card">
-        <h3>Total Volunteer</h3>
-        <div class="big"><?= number_format($total_volunteer, 0, ',', '.') ?></div>
-    </div>
-    <div class="card">
-        <h3>Total Program</h3>
-        <div class="big"><?= number_format($total_program ?? 0, 0, ',', '.') ?></div>
-        <small>Ongoing: <?= $program_ongoing ?? 0 ?></small>
-    </div>
-    <div class="card">
-        <h3>Total Harian (Hari Ini)</h3>
-        <div class="big" style="color:#27ae60">Rp <?= number_format($daily_total['total'] ?? 0, 0, ',', '.') ?></div>
-        <small><?= $daily_total['jumlah'] ?? 0 ?> transaksi</small>
-    </div>
-</div>
 
-<div class="grid">
-    <div class="card">
-        <h3>Total Pemasukan</h3>
-        <div class="big" style="color:#27ae60">Rp <?= number_format($total_pemasukan ?? 0, 0, ',', '.') ?></div>
+    <div class="grid">
+        <div class="stat-card">
+            <div class="icon">💵</div>
+            <h3>Total Pemasukan</h3>
+            <div class="big"><?= formatRupiah($total_pemasukan ?? 0) ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">💸</div>
+            <h3>Total Pengeluaran</h3>
+            <div class="big"><?= formatRupiah($total_pengeluaran ?? 0) ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="icon">💳</div>
+            <h3>Saldo</h3>
+            <div class="big"><?= formatRupiah($saldo ?? 0) ?></div>
+        </div>
     </div>
-    <div class="card">
-        <h3>Total Pengeluaran</h3>
-        <div class="big" style="color:#e74c3c">Rp <?= number_format($total_pengeluaran ?? 0, 0, ',', '.') ?></div>
-    </div>
-    <div class="card">
-        <h3>Saldo</h3>
-        <div class="big" style="color:<?= ($saldo ?? 0) >= 0 ? '#27ae60' : '#e74c3c' ?>">Rp <?= number_format($saldo ?? 0, 0, ',', '.') ?></div>
-    </div>
-</div>
 
-<div class="card">
-    <h3>📊 Tabel Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
+    <div class="card">
+        <div class="card-header">
+            <h3>📊 Tabel Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
+        </div>
     <div style="max-height:400px; overflow-y:auto">
         <table>
             <thead>
@@ -227,20 +211,26 @@ $daily_total = $pdo->query("
     </div>
 </div>
 
-<div class="card">
-    <h3>📈 Chart Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
-    <canvas id="dailyChart" style="max-height:300px"></canvas>
-</div>
+    <div class="card">
+        <div class="card-header">
+            <h3>📈 Chart Pergerakan Donasi Harian (30 Hari Terakhir)</h3>
+        </div>
+        <canvas id="dailyChart" style="max-height:300px"></canvas>
+    </div>
 
-<div class="card">
-    <h3>📅 Chart Donasi Bulanan (12 Bulan Terakhir)</h3>
-    <canvas id="monthlyChart" style="max-height:300px"></canvas>
-</div>
+    <div class="card">
+        <div class="card-header">
+            <h3>📅 Chart Donasi Bulanan (12 Bulan Terakhir)</h3>
+        </div>
+        <canvas id="monthlyChart" style="max-height:300px"></canvas>
+    </div>
 
-<div class="card">
-    <h3>📊 Perbandingan Harian vs Bulanan</h3>
-    <canvas id="comparisonChart" style="max-height:300px"></canvas>
-</div>
+    <div class="card">
+        <div class="card-header">
+            <h3>📊 Perbandingan Harian vs Bulanan</h3>
+        </div>
+        <canvas id="comparisonChart" style="max-height:300px"></canvas>
+    </div>
 
 <script>
 // Daily Chart
