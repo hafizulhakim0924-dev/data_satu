@@ -403,10 +403,23 @@ if ($view_id) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <?= getCssLink() ?>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Leaflet tanpa SRI: hash CDN sering berubah sehingga library tidak termuat = peta putih -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
     <style>
-        #mapProgramIndonesia { height: min(520px, 70vh); width: 100%; border-radius: 8px; border: 1px solid var(--border-color); z-index: 1; }
+        /* Tinggi eksplisit wajib agar Leaflet bisa menggambar tile */
+        #mapProgramIndonesia {
+            height: 480px;
+            width: 100%;
+            min-height: 320px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #e8eef5;
+        }
+        #mapProgramIndonesia .leaflet-container {
+            height: 100%;
+            width: 100%;
+            font-family: inherit;
+        }
         .map-legend { font-size: 12px; color: var(--light-text); margin-top: 8px; }
     </style>
 </head>
@@ -757,6 +770,10 @@ if ($view_id) {
     </div>
 </div>
 
+<?php if (!$view_program && $tab_program === 'peta'): ?>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+<?php endif; ?>
+
 <script>
 function openModal(type) {
     document.getElementById('modalProgram').style.display = 'block';
@@ -816,40 +833,61 @@ window.onclick = function(event) {
         d.textContent = s;
         return d.innerHTML;
     }
+    function addTiles(map) {
+        // Carto Voyager: umumnya stabil; OSM langsung kadang diblokir / gagal di beberapa jaringan
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            subdomains: 'abcd',
+            maxZoom: 20,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+        }).addTo(map);
+    }
     function initMapProgram() {
         var el = document.getElementById('mapProgramIndonesia');
-        if (!el || typeof L === 'undefined') return;
-        var map = L.map('mapProgramIndonesia').setView([-2.5, 118.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap'
-        }).addTo(map);
-        if (!pins || !pins.length) return;
-        var bounds = [];
-        pins.forEach(function(p) {
-            var r = Math.min(26, Math.max(7, 6 + (p.jumlah_program || 1) * 2));
-            var mk = L.circleMarker([p.lat, p.lng], {
-                radius: r,
-                fillColor: '#ff7a00',
-                color: '#fff',
-                weight: 2,
-                fillOpacity: 0.88
-            }).addTo(map);
-            var html = '<div style="min-width:200px"><strong>' + esc(p.kota) + '</strong><br>' +
-                esc(p.provinsi) + '<br><hr style="margin:8px 0;border:none;border-top:1px solid #eee">' +
-                '<b>' + (p.jumlah_program || 0) + '</b> program bantuan<br>' +
-                '<b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b> penerima manfaat (jumlah)';
-            if (p.contoh_nama) {
-                html += '<br><small style="color:#666">' + esc(p.contoh_nama) + '</small>';
-            }
-            html += '</div>';
-            mk.bindPopup(html);
-            bounds.push([p.lat, p.lng]);
-        });
-        if (bounds.length > 0) {
-            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
+        if (!el) return;
+        if (typeof L === 'undefined') {
+            el.innerHTML = '<p style="padding:24px;color:#c00;">Peta gagal dimuat. Periksa koneksi internet atau blokir script CDN (Leaflet).</p>';
+            return;
         }
-        setTimeout(function() { map.invalidateSize(); }, 300);
+        var map = L.map(el, { zoomControl: true }).setView([-2.5, 118.0], 5);
+        addTiles(map);
+        if (pins && pins.length) {
+            var bounds = [];
+            pins.forEach(function(p) {
+                var lat = parseFloat(p.lat);
+                var lng = parseFloat(p.lng);
+                if (isNaN(lat) || isNaN(lng)) return;
+                var r = Math.min(26, Math.max(7, 6 + (p.jumlah_program || 1) * 2));
+                var mk = L.circleMarker([lat, lng], {
+                    radius: r,
+                    fillColor: '#ff7a00',
+                    color: '#fff',
+                    weight: 2,
+                    fillOpacity: 0.88
+                }).addTo(map);
+                var html = '<div style="min-width:200px"><strong>' + esc(p.kota) + '</strong><br>' +
+                    esc(p.provinsi) + '<br><hr style="margin:8px 0;border:none;border-top:1px solid #eee">' +
+                    '<b>' + (p.jumlah_program || 0) + '</b> program bantuan<br>' +
+                    '<b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b> penerima manfaat (jumlah)';
+                if (p.contoh_nama) {
+                    html += '<br><small style="color:#666">' + esc(p.contoh_nama) + '</small>';
+                }
+                html += '</div>';
+                mk.bindPopup(html);
+                bounds.push([lat, lng]);
+            });
+            if (bounds.length > 0) {
+                try {
+                    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 10 });
+                } catch (e) {}
+            }
+        }
+        function fixSize() {
+            try { map.invalidateSize(true); } catch (e) {}
+        }
+        setTimeout(fixSize, 100);
+        setTimeout(fixSize, 500);
+        window.addEventListener('load', fixSize);
+        window.addEventListener('resize', fixSize);
     }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initMapProgram);
