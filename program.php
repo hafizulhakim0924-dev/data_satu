@@ -403,8 +403,9 @@ if ($view_id) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <?= getCssLink() ?>
-    <!-- Leaflet tanpa SRI: hash CDN sering berubah sehingga library tidak termuat = peta putih -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+    <?php if (!$view_program && $tab_program === 'peta'): ?>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+    <?php endif; ?>
     <style>
         /* Tinggi eksplisit wajib agar Leaflet bisa menggambar tile */
         #mapProgramIndonesia {
@@ -771,7 +772,7 @@ if ($view_id) {
 </div>
 
 <?php if (!$view_program && $tab_program === 'peta'): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <?php endif; ?>
 
 <script>
@@ -809,20 +810,20 @@ function deleteProgram(id) {
     }
 }
 
-// Open modal if editing
+// Open modal if editing (jangan pakai window.onload — bisa bentrok dan mengganggu init peta)
 <?php if($edit_program): ?>
-window.onload = function() {
+window.addEventListener('load', function() {
     openModal('edit');
-};
+});
 <?php endif; ?>
 
 // Close modal when clicking outside
-window.onclick = function(event) {
+window.addEventListener('click', function(event) {
     const modal = document.getElementById('modalProgram');
-    if (event.target == modal) {
+    if (modal && event.target === modal) {
         closeModal();
     }
-}
+});
 
 <?php if (!$view_program && $tab_program === 'peta'): ?>
 (function() {
@@ -834,11 +835,10 @@ window.onclick = function(event) {
         return d.innerHTML;
     }
     function addTiles(map) {
-        // Carto Voyager: umumnya stabil; OSM langsung kadang diblokir / gagal di beberapa jaringan
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            subdomains: 'abcd',
-            maxZoom: 20,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+        // OpenStreetMap — sering lebih andal di jaringan Indonesia dibanding tile CDN tertentu
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
     }
     function initMapProgram() {
@@ -884,15 +884,16 @@ window.onclick = function(event) {
         function fixSize() {
             try { map.invalidateSize(true); } catch (e) {}
         }
-        setTimeout(fixSize, 100);
-        setTimeout(fixSize, 500);
-        window.addEventListener('load', fixSize);
         window.addEventListener('resize', fixSize);
+        // Setelah window load + paint: ukuran container final, tile/img CSS sudah diterapkan
+        setTimeout(fixSize, 50);
+        setTimeout(fixSize, 300);
+        setTimeout(fixSize, 800);
     }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initMapProgram);
-    } else {
+    if (document.readyState === 'complete') {
         initMapProgram();
+    } else {
+        window.addEventListener('load', initMapProgram);
     }
 })();
 <?php endif; ?>

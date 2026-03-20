@@ -36,6 +36,22 @@ body {
     font-size: 13px;
 }
 
+/* Leaflet: aturan global "img { max-width:100% }" (Bootstrap/dsb) membuat tile tidak tampil = peta abu-abu kosong */
+.leaflet-container img.leaflet-tile,
+.leaflet-container img.leaflet-marker-icon,
+.leaflet-container img.leaflet-marker-shadow {
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.leaflet-container {
+    font-size: inherit;
+}
+
+.leaflet-tile-container img {
+    width: auto !important;
+}
+
 /* ============================================
    NAVBAR
    ============================================ */
