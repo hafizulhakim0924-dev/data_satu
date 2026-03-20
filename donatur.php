@@ -171,7 +171,12 @@ if ($edit_id) {
                     <td>
                         <div style="display:flex; align-items:center; gap:10px">
                             <div style="flex:1">
-                                <strong><?= htmlspecialchars($d['nama']) ?></strong>
+                                <a href="javascript:void(0)"
+                                   onclick="showDonasiDetail(<?= $d['id'] ?>, <?= json_encode($d['nama']) ?>)"
+                                   title="Klik untuk melihat detail donasi"
+                                   style="color:var(--primary-color); font-weight:700; text-decoration:none; cursor:pointer;">
+                                    <?= htmlspecialchars($d['nama']) ?>
+                                </a>
                                 <?php if($d['nama_perusahaan']): ?>
                                 <br><small style="color:#666"><?= htmlspecialchars($d['nama_perusahaan']) ?></small>
                                 <?php endif; ?>
