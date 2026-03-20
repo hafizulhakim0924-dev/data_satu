@@ -9,10 +9,93 @@ ini_set('log_errors', 1);
 
 require_once 'config.php';
 
+/**
+ * Cek kolom geo di program_csr
+ */
+function program_csr_geo_columns(PDO $pdo) {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $c = $pdo->query("SHOW COLUMNS FROM program_csr")->fetchAll(PDO::FETCH_COLUMN);
+        $cache = [
+            'lat' => in_array('latitude', $c, true),
+            'lng' => in_array('longitude', $c, true),
+        ];
+    } catch (Exception $e) {
+        $cache = ['lat' => false, 'lng' => false];
+    }
+    return $cache;
+}
+
+/**
+ * Koordinat perkiraan kota di Indonesia (untuk pin jika lat/lng DB kosong)
+ */
+function program_map_resolve_coords($kota, $provinsi) {
+    $k = mb_strtolower(trim((string)$kota));
+    $p = mb_strtolower(trim((string)$provinsi));
+    $map = [
+        'padang' => [-0.9492, 100.3543],
+        'bukittinggi' => [-0.3056, 100.3692],
+        'solok' => [-0.8006, 100.6567],
+        'pariaman' => [-0.6267, 100.1208],
+        'payakumbuh' => [-0.2206, 100.6331],
+        'jakarta' => [-6.2088, 106.8456],
+        'bandung' => [-6.9175, 107.6191],
+        'surabaya' => [-7.2575, 112.7521],
+        'medan' => [3.5952, 98.6722],
+        'semarang' => [-6.9667, 110.4167],
+        'yogyakarta' => [-7.7956, 110.3695],
+        'makassar' => [-5.1477, 119.4327],
+        'palembang' => [-2.9761, 104.7754],
+        'manado' => [1.4748, 124.8421],
+        'denpasar' => [-8.6705, 115.2126],
+        'lombok' => [-8.5833, 116.1167],
+        'mataram' => [-8.5833, 116.1167],
+        'aceh' => [5.5483, 95.3238],
+        'pekanbaru' => [0.5071, 101.4478],
+        'batam' => [1.0456, 104.0305],
+        'pontianak' => [-0.0263, 109.3425],
+        'banjarmasin' => [-3.3194, 114.5908],
+        'balikpapan' => [-1.2675, 116.8289],
+    ];
+    foreach ($map as $name => $coord) {
+        if ($k !== '' && (strpos($k, $name) !== false || $k === $name)) {
+            return $coord;
+        }
+    }
+    // fallback provinsi kasar
+    if (strpos($p, 'sumatera barat') !== false || $p === 'sumbar') {
+        return [-0.7394, 100.8008];
+    }
+    if (strpos($p, 'jawa barat') !== false) {
+        return [-6.8892, 107.6405];
+    }
+    if (strpos($p, 'jawa timur') !== false) {
+        return [-7.5361, 112.2384];
+    }
+    if (strpos($p, 'sumatera utara') !== false) {
+        return [3.5970, 98.6783];
+    }
+    // jitter agar kota tak dikenal tidak semua bertumpuk di titik sama
+    $key = $k . '|' . $p;
+    $h = crc32($key);
+    $lat = -2.2 + (($h % 200) / 100 - 1) * 1.8;
+    $lng = 114 + (($h % 300) / 100 - 0.5) * 12;
+    return [$lat, $lng];
+}
+
 // Initialize variables
 $error_msg = null;
 $program_list = [];
 $users = [];
+$map_pins = [];
+$program_has_geo_cols = false;
+$tab_program = $_GET['tab'] ?? 'daftar';
+if (!in_array($tab_program, ['daftar', 'peta'], true)) {
+    $tab_program = 'daftar';
+}
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -20,26 +103,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     if ($action == 'add_program') {
         try {
-            $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([
-                $_POST['nama_program'] ?? '',
-                $_POST['kategori'] ?? '',
-                $_POST['deskripsi'] ?? '',
-                $_POST['lokasi'] ?? '',
-                $_POST['kecamatan'] ?? '',
-                $_POST['kota'] ?? '',
-                $_POST['provinsi'] ?? '',
-                $_POST['tanggal_mulai'] ?: null,
-                $_POST['tanggal_selesai'] ?: null,
-                $_POST['budget'] ?? 0,
-                $_POST['status'] ?? 'planning',
-                $_POST['pic'] ?: null,
-                $_POST['jenis_bantuan'] ?? '',
-                $_POST['jumlah_bantuan'] ?? 0,
-                $_POST['satuan'] ?? '',
-                $_POST['jumlah_penerima_manfaat'] ?? 0,
-                $_POST['jumlah_relawan_terlibat'] ?? 0
-            ]);
+            $geo = program_csr_geo_columns($pdo);
+            $latIn = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+            $lngIn = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+
+            if ($geo['lat'] && $geo['lng']) {
+                $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat, latitude, longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([
+                    $_POST['nama_program'] ?? '',
+                    $_POST['kategori'] ?? '',
+                    $_POST['deskripsi'] ?? '',
+                    $_POST['lokasi'] ?? '',
+                    $_POST['kecamatan'] ?? '',
+                    $_POST['kota'] ?? '',
+                    $_POST['provinsi'] ?? '',
+                    $_POST['tanggal_mulai'] ?: null,
+                    $_POST['tanggal_selesai'] ?: null,
+                    $_POST['budget'] ?? 0,
+                    $_POST['status'] ?? 'planning',
+                    $_POST['pic'] ?: null,
+                    $_POST['jenis_bantuan'] ?? '',
+                    $_POST['jumlah_bantuan'] ?? 0,
+                    $_POST['satuan'] ?? '',
+                    $_POST['jumlah_penerima_manfaat'] ?? 0,
+                    $_POST['jumlah_relawan_terlibat'] ?? 0,
+                    $latIn,
+                    $lngIn
+                ]);
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([
+                    $_POST['nama_program'] ?? '',
+                    $_POST['kategori'] ?? '',
+                    $_POST['deskripsi'] ?? '',
+                    $_POST['lokasi'] ?? '',
+                    $_POST['kecamatan'] ?? '',
+                    $_POST['kota'] ?? '',
+                    $_POST['provinsi'] ?? '',
+                    $_POST['tanggal_mulai'] ?: null,
+                    $_POST['tanggal_selesai'] ?: null,
+                    $_POST['budget'] ?? 0,
+                    $_POST['status'] ?? 'planning',
+                    $_POST['pic'] ?: null,
+                    $_POST['jenis_bantuan'] ?? '',
+                    $_POST['jumlah_bantuan'] ?? 0,
+                    $_POST['satuan'] ?? '',
+                    $_POST['jumlah_penerima_manfaat'] ?? 0,
+                    $_POST['jumlah_relawan_terlibat'] ?? 0
+                ]);
+            }
             @ob_end_clean();
             header("Location: program.php?msg=Program berhasil ditambahkan");
             exit;
@@ -51,27 +163,57 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($action == 'update_program') {
         try {
             $id = $_POST['id'] ?? 0;
-            $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, kecamatan=?, kota=?, provinsi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=?, jenis_bantuan=?, jumlah_bantuan=?, satuan=?, jumlah_penerima_manfaat=?, jumlah_relawan_terlibat=? WHERE id=?");
-            $stmt->execute([
-                $_POST['nama_program'] ?? '',
-                $_POST['kategori'] ?? '',
-                $_POST['deskripsi'] ?? '',
-                $_POST['lokasi'] ?? '',
-                $_POST['kecamatan'] ?? '',
-                $_POST['kota'] ?? '',
-                $_POST['provinsi'] ?? '',
-                $_POST['tanggal_mulai'] ?: null,
-                $_POST['tanggal_selesai'] ?: null,
-                $_POST['budget'] ?? 0,
-                $_POST['status'] ?? 'planning',
-                $_POST['pic'] ?: null,
-                $_POST['jenis_bantuan'] ?? '',
-                $_POST['jumlah_bantuan'] ?? 0,
-                $_POST['satuan'] ?? '',
-                $_POST['jumlah_penerima_manfaat'] ?? 0,
-                $_POST['jumlah_relawan_terlibat'] ?? 0,
-                $id
-            ]);
+            $geo = program_csr_geo_columns($pdo);
+            $latIn = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+            $lngIn = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+
+            if ($geo['lat'] && $geo['lng']) {
+                $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, kecamatan=?, kota=?, provinsi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=?, jenis_bantuan=?, jumlah_bantuan=?, satuan=?, jumlah_penerima_manfaat=?, jumlah_relawan_terlibat=?, latitude=?, longitude=? WHERE id=?");
+                $stmt->execute([
+                    $_POST['nama_program'] ?? '',
+                    $_POST['kategori'] ?? '',
+                    $_POST['deskripsi'] ?? '',
+                    $_POST['lokasi'] ?? '',
+                    $_POST['kecamatan'] ?? '',
+                    $_POST['kota'] ?? '',
+                    $_POST['provinsi'] ?? '',
+                    $_POST['tanggal_mulai'] ?: null,
+                    $_POST['tanggal_selesai'] ?: null,
+                    $_POST['budget'] ?? 0,
+                    $_POST['status'] ?? 'planning',
+                    $_POST['pic'] ?: null,
+                    $_POST['jenis_bantuan'] ?? '',
+                    $_POST['jumlah_bantuan'] ?? 0,
+                    $_POST['satuan'] ?? '',
+                    $_POST['jumlah_penerima_manfaat'] ?? 0,
+                    $_POST['jumlah_relawan_terlibat'] ?? 0,
+                    $latIn,
+                    $lngIn,
+                    $id
+                ]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, kecamatan=?, kota=?, provinsi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=?, jenis_bantuan=?, jumlah_bantuan=?, satuan=?, jumlah_penerima_manfaat=?, jumlah_relawan_terlibat=? WHERE id=?");
+                $stmt->execute([
+                    $_POST['nama_program'] ?? '',
+                    $_POST['kategori'] ?? '',
+                    $_POST['deskripsi'] ?? '',
+                    $_POST['lokasi'] ?? '',
+                    $_POST['kecamatan'] ?? '',
+                    $_POST['kota'] ?? '',
+                    $_POST['provinsi'] ?? '',
+                    $_POST['tanggal_mulai'] ?: null,
+                    $_POST['tanggal_selesai'] ?: null,
+                    $_POST['budget'] ?? 0,
+                    $_POST['status'] ?? 'planning',
+                    $_POST['pic'] ?: null,
+                    $_POST['jenis_bantuan'] ?? '',
+                    $_POST['jumlah_bantuan'] ?? 0,
+                    $_POST['satuan'] ?? '',
+                    $_POST['jumlah_penerima_manfaat'] ?? 0,
+                    $_POST['jumlah_relawan_terlibat'] ?? 0,
+                    $id
+                ]);
+            }
             @ob_end_clean();
             header("Location: program.php?msg=Program berhasil diupdate");
             exit;
@@ -166,6 +308,58 @@ try {
                 AVG(COALESCE(progress, 0)) as avg_progress
             FROM program_csr
         ")->fetch();
+
+        $geoFlags = program_csr_geo_columns($pdo);
+        $program_has_geo_cols = !empty($geoFlags['lat']) && !empty($geoFlags['lng']);
+
+        // Data peta: agregasi per kota (bantuan RPN per wilayah)
+        try {
+            $geo = program_csr_geo_columns($pdo);
+            $sqlMap = "
+                SELECT 
+                    TRIM(COALESCE(kota, '')) AS kota,
+                    TRIM(COALESCE(provinsi, '')) AS provinsi,
+                    COUNT(*) AS jumlah_program,
+                    SUM(COALESCE(jumlah_penerima_manfaat, 0)) AS total_penerima,
+                    SUBSTRING(
+                        GROUP_CONCAT(DISTINCT nama_program ORDER BY nama_program SEPARATOR ' • '),
+                        1,
+                        400
+                    ) AS contoh_nama
+            ";
+            if ($geo['lat'] && $geo['lng']) {
+                $sqlMap .= ",
+                    AVG(NULLIF(latitude, 0)) AS lat,
+                    AVG(NULLIF(longitude, 0)) AS lng
+                ";
+            }
+            $sqlMap .= "
+                FROM program_csr
+                WHERE kota IS NOT NULL AND TRIM(kota) != ''
+                GROUP BY TRIM(kota), TRIM(COALESCE(provinsi, ''))
+                ORDER BY jumlah_program DESC, kota ASC
+            ";
+            $agg = $pdo->query($sqlMap)->fetchAll(PDO::FETCH_ASSOC);
+            $map_pins = [];
+            foreach ($agg as $row) {
+                $lat = isset($row['lat']) ? (float)$row['lat'] : null;
+                $lng = isset($row['lng']) ? (float)$row['lng'] : null;
+                if ($lat === null || $lng === null || abs($lat) < 0.0001 || abs($lng) < 0.0001) {
+                    list($lat, $lng) = program_map_resolve_coords($row['kota'], $row['provinsi']);
+                }
+                $map_pins[] = [
+                    'kota' => $row['kota'],
+                    'provinsi' => $row['provinsi'],
+                    'jumlah_program' => (int)$row['jumlah_program'],
+                    'total_penerima' => (int)$row['total_penerima'],
+                    'contoh_nama' => $row['contoh_nama'] ?? '',
+                    'lat' => round($lat, 6),
+                    'lng' => round($lng, 6),
+                ];
+            }
+        } catch (PDOException $e) {
+            $map_pins = [];
+        }
     } else {
         $error_msg = "Tabel 'program_csr' belum ada. Jalankan fix_all_program_tables.sql";
         $stats = null;
@@ -209,6 +403,12 @@ if ($view_id) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <?= getCssLink() ?>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        #mapProgramIndonesia { height: min(520px, 70vh); width: 100%; border-radius: 8px; border: 1px solid var(--border-color); z-index: 1; }
+        .map-legend { font-size: 12px; color: var(--light-text); margin-top: 8px; }
+    </style>
 </head>
 <body>
 
@@ -222,6 +422,13 @@ if ($view_id) {
         <h1 style="margin:0">📋 Manajemen Program CSR</h1>
         <button class="btn btn-success" onclick="openModal('add')">+ Tambah Program</button>
     </div>
+
+    <?php if (!$view_program): ?>
+    <div class="tabs" style="margin-bottom: 14px;">
+        <a href="program.php?tab=daftar" class="<?= ($tab_program === 'daftar') ? 'active' : '' ?>">📋 Daftar</a>
+        <a href="program.php?tab=peta" class="<?= ($tab_program === 'peta') ? 'active' : '' ?>">🗺️ Peta Indonesia</a>
+    </div>
+    <?php endif; ?>
     
     <?php if(isset($_GET['msg'])): ?>
     <div class="alert alert-success"><?= htmlspecialchars($_GET['msg']) ?></div>
@@ -339,6 +546,17 @@ if ($view_id) {
             <a href="?edit=<?= $view_program['id'] ?>" class="btn btn-success">Edit Program</a>
         </div>
     </div>
+    <?php elseif ($tab_program === 'peta'): ?>
+    <div class="card">
+        <div class="card-header">
+            <h3 style="margin:0">Sebaran bantuan RPN per kota</h3>
+        </div>
+        <p class="map-legend">Pin diambil dari data <strong>Kota</strong> program. Ukuran pin menggambarkan jumlah program di kota tersebut. Isi <strong>Latitude / Longitude</strong> pada form program untuk penempatan lebih akurat (jika kolom tersedia di database).</p>
+        <div id="mapProgramIndonesia"></div>
+        <?php if (empty($map_pins)): ?>
+            <p style="margin-top:12px; color:var(--light-text);">Belum ada program dengan kolom kota terisi. Tambah program dan isi kota untuk menampilkan pin.</p>
+        <?php endif; ?>
+    </div>
     <?php else: ?>
     
     <table>
@@ -447,6 +665,21 @@ if ($view_id) {
                 <label>Provinsi</label>
                 <input type="text" name="provinsi" value="<?= htmlspecialchars($edit_program['provinsi'] ?? 'Sumatera Barat') ?>" placeholder="Sumatera Barat">
             </div>
+
+            <?php if ($program_has_geo_cols): ?>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Latitude (pin peta, opsional)</label>
+                    <input type="text" name="latitude" value="<?= htmlspecialchars($edit_program['latitude'] ?? '') ?>" placeholder="-0.94924">
+                </div>
+                <div class="form-group">
+                    <label>Longitude</label>
+                    <input type="text" name="longitude" value="<?= htmlspecialchars($edit_program['longitude'] ?? '') ?>" placeholder="100.35427">
+                </div>
+            </div>
+            <?php else: ?>
+            <p style="font-size:12px; color:var(--light-text); margin-bottom:12px;">Untuk pin manual di peta, pastikan tabel <code>program_csr</code> memiliki kolom <code>latitude</code> dan <code>longitude</code> (lihat <code>create_program_csr_with_details.sql</code>).</p>
+            <?php endif; ?>
             
             <div class="form-group">
                 <label>Jenis Bantuan</label>
@@ -573,6 +806,58 @@ window.onclick = function(event) {
         closeModal();
     }
 }
+
+<?php if (!$view_program && $tab_program === 'peta'): ?>
+(function() {
+    var pins = <?= json_encode($map_pins, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    function esc(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+    function initMapProgram() {
+        var el = document.getElementById('mapProgramIndonesia');
+        if (!el || typeof L === 'undefined') return;
+        var map = L.map('mapProgramIndonesia').setView([-2.5, 118.0], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+        if (!pins || !pins.length) return;
+        var bounds = [];
+        pins.forEach(function(p) {
+            var r = Math.min(26, Math.max(7, 6 + (p.jumlah_program || 1) * 2));
+            var mk = L.circleMarker([p.lat, p.lng], {
+                radius: r,
+                fillColor: '#ff7a00',
+                color: '#fff',
+                weight: 2,
+                fillOpacity: 0.88
+            }).addTo(map);
+            var html = '<div style="min-width:200px"><strong>' + esc(p.kota) + '</strong><br>' +
+                esc(p.provinsi) + '<br><hr style="margin:8px 0;border:none;border-top:1px solid #eee">' +
+                '<b>' + (p.jumlah_program || 0) + '</b> program bantuan<br>' +
+                '<b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b> penerima manfaat (jumlah)';
+            if (p.contoh_nama) {
+                html += '<br><small style="color:#666">' + esc(p.contoh_nama) + '</small>';
+            }
+            html += '</div>';
+            mk.bindPopup(html);
+            bounds.push([p.lat, p.lng]);
+        });
+        if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
+        }
+        setTimeout(function() { map.invalidateSize(); }, 300);
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMapProgram);
+    } else {
+        initMapProgram();
+    }
+})();
+<?php endif; ?>
 </script>
 
 </body>
