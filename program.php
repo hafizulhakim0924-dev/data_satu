@@ -565,7 +565,7 @@ if ($view_id) {
         <div class="card-header">
             <h3 style="margin:0">Sebaran bantuan RPN per kota</h3>
         </div>
-        <p class="map-legend">Pin diambil dari data <strong>Kota</strong> program. Ukuran pin menggambarkan jumlah program di kota tersebut. Isi <strong>Latitude / Longitude</strong> pada form program untuk penempatan lebih akurat (jika kolom tersedia di database).</p>
+        <p class="map-legend">📍 Pin lokasi dari data <strong>Kota</strong> program (satu pin per kota). Angka di pin = jumlah program di kota itu. Isi <strong>Latitude / Longitude</strong> untuk penempatan lebih akurat (jika kolom tersedia di database).</p>
         <div id="mapProgramIndonesia"></div>
         <?php if (empty($map_pins)): ?>
             <p style="margin-top:12px; color:var(--light-text);">Belum ada program dengan kolom kota terisi. Tambah program dan isi kota untuk menampilkan pin.</p>
@@ -841,6 +841,23 @@ window.addEventListener('click', function(event) {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
     }
+    /** Pin oranye (SVG) + badge jumlah program */
+    function makeProgramPinIcon(jumlahProgram) {
+        var n = Math.max(1, parseInt(jumlahProgram, 10) || 1);
+        var badge = n > 1 ? ('<span class="rpn-map-pin-badge">' + (n > 99 ? '99+' : n) + '</span>') : '';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 48" width="34" height="46" aria-hidden="true">'
+            + '<path fill="#ff7a00" stroke="#c55a00" stroke-width="1.2" d="M18 2C10.3 2 4 8.3 4 16c0 11.5 11.2 24.5 13.3 27 0.4 0.5 1 0.5 1.4 0C20.8 40.5 32 27.5 32 16 32 8.3 25.7 2 18 2z"/>'
+            + '<circle fill="#fff" cx="18" cy="16" r="5.5"/>'
+            + '<circle fill="#ff7a00" cx="18" cy="16" r="2.2"/>'
+            + '</svg>';
+        return L.divIcon({
+            className: 'rpn-map-pin-outer',
+            html: '<div class="rpn-map-pin">' + svg + badge + '</div>',
+            iconSize: [36, 48],
+            iconAnchor: [18, 48],
+            popupAnchor: [0, -46]
+        });
+    }
     function initMapProgram() {
         var el = document.getElementById('mapProgramIndonesia');
         if (!el) return;
@@ -856,13 +873,8 @@ window.addEventListener('click', function(event) {
                 var lat = parseFloat(p.lat);
                 var lng = parseFloat(p.lng);
                 if (isNaN(lat) || isNaN(lng)) return;
-                var r = Math.min(26, Math.max(7, 6 + (p.jumlah_program || 1) * 2));
-                var mk = L.circleMarker([lat, lng], {
-                    radius: r,
-                    fillColor: '#ff7a00',
-                    color: '#fff',
-                    weight: 2,
-                    fillOpacity: 0.88
+                var mk = L.marker([lat, lng], {
+                    icon: makeProgramPinIcon(p.jumlah_program)
                 }).addTo(map);
                 var html = '<div style="min-width:200px"><strong>' + esc(p.kota) + '</strong><br>' +
                     esc(p.provinsi) + '<br><hr style="margin:8px 0;border:none;border-top:1px solid #eee">' +
