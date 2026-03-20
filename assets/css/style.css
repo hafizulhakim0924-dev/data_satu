@@ -101,6 +101,67 @@ body {
     font-weight: 600;
 }
 
+/* Logo (logo.php) di sidebar */
+.navbar-brand {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.navbar-logo-link {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.navbar-logo-img {
+    max-width: 100%;
+    max-height: 40px;
+    width: auto;
+    object-fit: contain;
+}
+
+.navbar-logo-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary-color);
+    line-height: 1.2;
+}
+
+.navbar-title-fallback {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+/* Dashboard: sembunyikan blok lewat Settings */
+.dash-hidden {
+    display: none !important;
+}
+
+.dashboard-settings-panel .form-group {
+    margin-bottom: 8px;
+}
+
+.dashboard-settings-panel label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dark-text);
+}
+
+.dashboard-settings-panel input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
 /* ============================================
    CONTAINER
    ============================================ */
@@ -268,6 +329,17 @@ body {
 
 .btn-primary:hover {
     background: #ff8d26;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--dark-text);
+    border: 1px solid var(--border-color);
+}
+
+.btn-ghost:hover {
+    background: rgba(0,0,0,0.04);
+    border-color: #e0e4ef;
 }
 
 .btn-success {
