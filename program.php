@@ -96,10 +96,65 @@ $tab_program = $_GET['tab'] ?? 'daftar';
 if (!in_array($tab_program, ['daftar', 'peta'], true)) {
     $tab_program = 'daftar';
 }
+if (!empty($_GET['err'])) {
+    $error_msg = (string)$_GET['err'];
+}
 
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? '';
+
+    /** Tambah program cepat dari klik peta (nama + keterangan + koordinat) */
+    if ($action === 'add_program_from_map') {
+        try {
+            $geo = program_csr_geo_columns($pdo);
+            if (!$geo['lat'] || !$geo['lng']) {
+                throw new Exception('Tabel perlu kolom latitude dan longitude agar program bisa disimpan dari peta.');
+            }
+            $nama = trim((string)($_POST['nama_program'] ?? ''));
+            if ($nama === '') {
+                throw new Exception('Nama program wajib diisi.');
+            }
+            $desk = trim((string)($_POST['deskripsi'] ?? ''));
+            $latIn = isset($_POST['latitude']) ? (float)$_POST['latitude'] : 0.0;
+            $lngIn = isset($_POST['longitude']) ? (float)$_POST['longitude'] : 0.0;
+            if (abs($latIn) < 1e-7 || abs($lngIn) < 1e-7) {
+                throw new Exception('Koordinat tidak valid.');
+            }
+            $kota = trim((string)($_POST['kota'] ?? ''));
+            $prov = trim((string)($_POST['provinsi'] ?? ''));
+            $today = date('Y-m-d');
+            $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat, latitude, longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([
+                $nama,
+                '',
+                $desk,
+                '',
+                '',
+                $kota,
+                $prov,
+                $today,
+                null,
+                0,
+                'planning',
+                null,
+                '',
+                0,
+                '',
+                0,
+                0,
+                $latIn,
+                $lngIn,
+            ]);
+            @ob_end_clean();
+            header('Location: program.php?tab=peta&msg=' . rawurlencode('Program ditambahkan dari peta'));
+            exit;
+        } catch (Exception $e) {
+            @ob_end_clean();
+            header('Location: program.php?tab=peta&err=' . rawurlencode($e->getMessage()));
+            exit;
+        }
+    }
     
     if ($action == 'add_program') {
         try {
@@ -153,7 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 ]);
             }
             @ob_end_clean();
-            header("Location: program.php?msg=Program berhasil ditambahkan");
+            header('Location: program.php?msg=' . rawurlencode('Program berhasil ditambahkan'));
             exit;
         } catch(PDOException $e) {
             $error_msg = "Error: " . $e->getMessage();
@@ -312,9 +367,43 @@ try {
         $geoFlags = program_csr_geo_columns($pdo);
         $program_has_geo_cols = !empty($geoFlags['lat']) && !empty($geoFlags['lng']);
 
-        // Data peta: agregasi per kota (bantuan RPN per wilayah)
+        // Data peta: pin per program (punya lat/lng) + agregasi kota untuk program tanpa koordinat
         try {
             $geo = program_csr_geo_columns($pdo);
+            $map_pins = [];
+
+            if ($geo['lat'] && $geo['lng']) {
+                $stmtPt = $pdo->query("
+                    SELECT 
+                        p.id AS program_id,
+                        p.nama_program,
+                        p.deskripsi,
+                        TRIM(COALESCE(p.kota, '')) AS kota,
+                        TRIM(COALESCE(p.provinsi, '')) AS provinsi,
+                        COALESCE(p.jumlah_penerima_manfaat, 0) AS total_penerima,
+                        p.latitude AS lat,
+                        p.longitude AS lng
+                    FROM program_csr p
+                    WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+                      AND ABS(p.latitude) > 0.0000001 AND ABS(p.longitude) > 0.0000001
+                ");
+                foreach ($stmtPt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $map_pins[] = [
+                        'pin_kind' => 'point',
+                        'program_id' => (int)$row['program_id'],
+                        'nama_program' => $row['nama_program'],
+                        'deskripsi' => (string)($row['deskripsi'] ?? ''),
+                        'kota' => $row['kota'],
+                        'provinsi' => $row['provinsi'],
+                        'jumlah_program' => 1,
+                        'total_penerima' => (int)$row['total_penerima'],
+                        'contoh_nama' => $row['nama_program'],
+                        'lat' => round((float)$row['lat'], 6),
+                        'lng' => round((float)$row['lng'], 6),
+                    ];
+                }
+            }
+
             $sqlMap = "
                 SELECT 
                     TRIM(COALESCE(kota, '')) AS kota,
@@ -336,11 +425,20 @@ try {
             $sqlMap .= "
                 FROM program_csr
                 WHERE kota IS NOT NULL AND TRIM(kota) != ''
+            ";
+            if ($geo['lat'] && $geo['lng']) {
+                $sqlMap .= "
+                    AND (
+                        latitude IS NULL OR longitude IS NULL
+                        OR ABS(latitude) < 0.0000001 OR ABS(longitude) < 0.0000001
+                    )
+                ";
+            }
+            $sqlMap .= "
                 GROUP BY TRIM(kota), TRIM(COALESCE(provinsi, ''))
                 ORDER BY jumlah_program DESC, kota ASC
             ";
             $agg = $pdo->query($sqlMap)->fetchAll(PDO::FETCH_ASSOC);
-            $map_pins = [];
             foreach ($agg as $row) {
                 $lat = isset($row['lat']) ? (float)$row['lat'] : null;
                 $lng = isset($row['lng']) ? (float)$row['lng'] : null;
@@ -348,6 +446,10 @@ try {
                     list($lat, $lng) = program_map_resolve_coords($row['kota'], $row['provinsi']);
                 }
                 $map_pins[] = [
+                    'pin_kind' => 'cluster',
+                    'program_id' => null,
+                    'nama_program' => null,
+                    'deskripsi' => '',
                     'kota' => $row['kota'],
                     'provinsi' => $row['provinsi'],
                     'jumlah_program' => (int)$row['jumlah_program'],
@@ -563,12 +665,16 @@ if ($view_id) {
     <?php elseif ($tab_program === 'peta'): ?>
     <div class="card">
         <div class="card-header">
-            <h3 style="margin:0">Sebaran bantuan RPN per kota</h3>
+            <h3 style="margin:0">Peta program CSR</h3>
         </div>
-        <p class="map-legend">📍 Pin lokasi dari data <strong>Kota</strong> program (satu pin per kota). Angka di pin = jumlah program di kota itu. Isi <strong>Latitude / Longitude</strong> untuk penempatan lebih akurat (jika kolom tersedia di database).</p>
+        <?php if ($program_has_geo_cols): ?>
+        <p class="map-legend"><strong>Klik di peta</strong> untuk menambah program baru: isi nama &amp; keterangan, lalu simpan — pin tampil di koordinat itu. Pin <em>per program</em> muncul jika ada koordinat di database; pin agregat per kota untuk program yang belum punya koordinat. Angka pada pin = jumlah program (kota).</p>
+        <?php else: ?>
+        <p class="map-legend">📍 Pin dari agregasi <strong>Kota</strong>. Untuk menambah program langsung dari peta, aktifkan kolom <code>latitude</code> &amp; <code>longitude</code> pada tabel <code>program_csr</code>.</p>
+        <?php endif; ?>
         <div id="mapProgramIndonesia"></div>
         <?php if (empty($map_pins)): ?>
-            <p style="margin-top:12px; color:var(--light-text);">Belum ada program dengan kolom kota terisi. Tambah program dan isi kota untuk menampilkan pin.</p>
+            <p style="margin-top:12px; color:var(--light-text);"><?= $program_has_geo_cols ? 'Belum ada data di peta. Klik pada peta untuk menambah program pertama, atau tambah dari menu Daftar.' : 'Belum ada program dengan kolom kota terisi. Tambah program dan isi kota untuk menampilkan pin.' ?></p>
         <?php endif; ?>
     </div>
     <?php else: ?>
@@ -772,6 +878,45 @@ if ($view_id) {
 </div>
 
 <?php if (!$view_program && $tab_program === 'peta'): ?>
+<!-- Modal: tambah program dari klik peta -->
+<div id="modalMapProgram" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:440px;">
+        <span class="close" onclick="closeMapProgramModal()" title="Tutup">&times;</span>
+        <h2 style="margin-top:0">📍 Tambah program di peta</h2>
+        <p class="map-legend" style="margin-top:0">Pin oranye bisa <strong>digeser</strong> untuk mengubah koordinat. Tanggal mulai dibuat otomatis hari ini (lengkapi data lain lewat <strong>Edit</strong> / Daftar).</p>
+        <p style="font-size:13px;margin:0 0 12px"><strong>Koordinat:</strong> <span id="mapAddCoordsLabel">—</span></p>
+        <form method="POST" action="program.php">
+            <input type="hidden" name="action" value="add_program_from_map">
+            <input type="hidden" name="latitude" id="mapAddLat" value="">
+            <input type="hidden" name="longitude" id="mapAddLng" value="">
+            <div class="form-group">
+                <label>Nama program *</label>
+                <input type="text" name="nama_program" id="mapAddNama" required maxlength="255" autocomplete="off" placeholder="Contoh: Bakti sosial pendidikan">
+            </div>
+            <div class="form-group">
+                <label>Keterangan / deskripsi</label>
+                <textarea name="deskripsi" id="mapAddDeskripsi" rows="3" placeholder="Ringkasan kegiatan, lokasi, catatan…"></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Kota (opsional)</label>
+                    <input type="text" name="kota" id="mapAddKota" placeholder="Contoh: Padang">
+                </div>
+                <div class="form-group">
+                    <label>Provinsi (opsional)</label>
+                    <input type="text" name="provinsi" id="mapAddProvinsi" placeholder="Contoh: Sumatera Barat">
+                </div>
+            </div>
+            <div class="text-right" style="margin-top:16px">
+                <button type="button" class="btn" onclick="closeMapProgramModal()">Batal</button>
+                <button type="submit" class="btn btn-success">Simpan ke peta</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if (!$view_program && $tab_program === 'peta'): ?>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <?php endif; ?>
 
@@ -823,11 +968,28 @@ window.addEventListener('click', function(event) {
     if (modal && event.target === modal) {
         closeModal();
     }
+    const modalMap = document.getElementById('modalMapProgram');
+    if (modalMap && event.target === modalMap) {
+        closeMapProgramModal();
+    }
 });
+
+/** Tutup form tambah dari peta + hapus pin draf */
+function closeMapProgramModal() {
+    var el = document.getElementById('modalMapProgram');
+    if (el) el.style.display = 'none';
+    if (window._rpnMapDraftMarker && window._rpnMapInstance) {
+        try {
+            window._rpnMapInstance.removeLayer(window._rpnMapDraftMarker);
+        } catch (e) {}
+        window._rpnMapDraftMarker = null;
+    }
+}
 
 <?php if (!$view_program && $tab_program === 'peta'): ?>
 (function() {
     var pins = <?= json_encode($map_pins, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var mapCanAddFromMap = <?= $program_has_geo_cols ? 'true' : 'false' ?>;
     function esc(s) {
         if (!s) return '';
         var d = document.createElement('div');
@@ -866,6 +1028,59 @@ window.addEventListener('click', function(event) {
             return;
         }
         var map = L.map(el, { zoomControl: true }).setView([-2.5, 118.0], 5);
+        window._rpnMapInstance = map;
+
+        function bindDraftMarkerDrag(marker) {
+            marker.on('dragend', function(ev) {
+                var ll = ev.target.getLatLng();
+                var formLat = document.getElementById('mapAddLat');
+                var formLng = document.getElementById('mapAddLng');
+                var label = document.getElementById('mapAddCoordsLabel');
+                if (formLat) formLat.value = ll.lat.toFixed(7);
+                if (formLng) formLng.value = ll.lng.toFixed(7);
+                if (label) label.textContent = formLat.value + ', ' + formLng.value;
+            });
+        }
+
+        function openMapAddDraft(latlng) {
+            if (!mapCanAddFromMap) return;
+            var modal = document.getElementById('modalMapProgram');
+            var formLat = document.getElementById('mapAddLat');
+            var formLng = document.getElementById('mapAddLng');
+            var label = document.getElementById('mapAddCoordsLabel');
+            if (!modal || !formLat || !formLng) return;
+            formLat.value = latlng.lat.toFixed(7);
+            formLng.value = latlng.lng.toFixed(7);
+            if (label) label.textContent = formLat.value + ', ' + formLng.value;
+            var firstOpen = modal.style.display !== 'block';
+            if (firstOpen) {
+                var n = document.getElementById('mapAddNama');
+                var d = document.getElementById('mapAddDeskripsi');
+                var k = document.getElementById('mapAddKota');
+                var pr = document.getElementById('mapAddProvinsi');
+                if (n) n.value = '';
+                if (d) d.value = '';
+                if (k) k.value = '';
+                if (pr) pr.value = '';
+            }
+            if (window._rpnMapDraftMarker) {
+                window._rpnMapDraftMarker.setLatLng(latlng);
+            } else {
+                window._rpnMapDraftMarker = L.marker(latlng, {
+                    icon: makeProgramPinIcon(1),
+                    draggable: true
+                }).addTo(map);
+                bindDraftMarkerDrag(window._rpnMapDraftMarker);
+            }
+            modal.style.display = 'block';
+        }
+
+        if (mapCanAddFromMap) {
+            map.on('click', function(e) {
+                openMapAddDraft(e.latlng);
+            });
+        }
+
         addTiles(map);
         if (pins && pins.length) {
             var bounds = [];
@@ -873,15 +1088,34 @@ window.addEventListener('click', function(event) {
                 var lat = parseFloat(p.lat);
                 var lng = parseFloat(p.lng);
                 if (isNaN(lat) || isNaN(lng)) return;
+                var kind = p.pin_kind || 'cluster';
                 var mk = L.marker([lat, lng], {
                     icon: makeProgramPinIcon(p.jumlah_program)
                 }).addTo(map);
-                var html = '<div style="min-width:200px"><strong>' + esc(p.kota) + '</strong><br>' +
-                    esc(p.provinsi) + '<br><hr style="margin:8px 0;border:none;border-top:1px solid #eee">' +
-                    '<b>' + (p.jumlah_program || 0) + '</b> program bantuan<br>' +
-                    '<b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b> penerima manfaat (jumlah)';
-                if (p.contoh_nama) {
-                    html += '<br><small style="color:#666">' + esc(p.contoh_nama) + '</small>';
+                var html = '<div style="min-width:210px">';
+                if (kind === 'point' && p.nama_program) {
+                    html += '<strong>' + esc(p.nama_program) + '</strong>';
+                    if (p.kota || p.provinsi) {
+                        html += '<br><small style="color:#666">' + esc([p.kota, p.provinsi].filter(Boolean).join(', ')) + '</small>';
+                    }
+                    html += '<hr style="margin:8px 0;border:none;border-top:1px solid #eee">';
+                    html += '<small>Penerima manfaat: <b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b></small>';
+                } else {
+                    html += '<strong>' + esc(p.kota) + '</strong><br>' + esc(p.provinsi);
+                    html += '<hr style="margin:8px 0;border:none;border-top:1px solid #eee">';
+                    html += '<b>' + (p.jumlah_program || 0) + '</b> program bantuan<br>';
+                    html += '<b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b> penerima manfaat (jumlah)';
+                    if (p.contoh_nama) {
+                        html += '<br><small style="color:#666">' + esc(p.contoh_nama) + '</small>';
+                    }
+                }
+                if (p.deskripsi && String(p.deskripsi).trim()) {
+                    var t = String(p.deskripsi).trim();
+                    if (t.length > 300) t = t.slice(0, 300) + '…';
+                    html += '<p style="margin:8px 0 0;font-size:12px;color:#444">' + esc(t) + '</p>';
+                }
+                if (p.program_id) {
+                    html += '<p style="margin-top:10px;margin-bottom:0"><a class="btn" style="padding:4px 10px;font-size:12px;display:inline-block" href="program.php?view=' + encodeURIComponent(p.program_id) + '">Detail program</a></p>';
                 }
                 html += '</div>';
                 mk.bindPopup(html);
