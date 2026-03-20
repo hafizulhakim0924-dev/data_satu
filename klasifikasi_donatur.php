@@ -55,39 +55,7 @@ if ($edit_id) {
 <html>
 <head>
 <title>Klasifikasi Donatur - Rangkiang Peduli Negeri</title>
-<style>
-* { margin:0; padding:0; box-sizing:border-box }
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f4f6f8 }
-.navbar { background:#2c3e50; color:#fff; padding:15px 20px; box-shadow:0 2px 5px rgba(0,0,0,0.1) }
-.navbar h1 { display:inline-block; margin-right:30px; font-size:20px }
-.nav-menu { display:inline-block; vertical-align:middle }
-.nav-menu a { color:#fff; text-decoration:none; padding:10px 15px; margin:0 5px; border-radius:5px; display:inline-block; transition:background 0.3s }
-.nav-menu a:hover, .nav-menu a.active { background:#34495e }
-.container { max-width:1400px; margin:20px auto; padding:0 20px }
-.card { background:#fff; padding:20px; border-radius:8px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.1) }
-.grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap:15px }
-.btn { display:inline-block; padding:10px 20px; background:#3498db; color:#fff; text-decoration:none; border-radius:5px; border:none; cursor:pointer; margin:5px }
-.btn:hover { background:#2980b9 }
-.btn-success { background:#27ae60 }
-.btn-danger { background:#e74c3c }
-.btn-warning { background:#f39c12 }
-.btn-sm { padding:5px 10px; font-size:12px }
-table { width:100%; border-collapse:collapse; margin-top:15px }
-table th, table td { padding:12px; text-align:left; border-bottom:1px solid #ddd }
-table th { background:#34495e; color:#fff; font-weight:600 }
-table tr:hover { background:#f5f5f5 }
-.form-group { margin-bottom:15px }
-.form-group label { display:block; margin-bottom:5px; font-weight:600; color:#2c3e50 }
-.form-group input, .form-group select, .form-group textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:5px; font-size:14px }
-.form-group textarea { min-height:100px; resize:vertical }
-.form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px }
-.modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5) }
-.modal-content { background:#fff; margin:5% auto; padding:20px; border-radius:8px; width:90%; max-width:600px; max-height:90vh; overflow-y:auto }
-.close { float:right; font-size:28px; font-weight:bold; cursor:pointer }
-.alert { padding:15px; margin-bottom:20px; border-radius:5px }
-.alert-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb }
-.color-preview { width:40px; height:40px; border-radius:4px; display:inline-block; border:2px solid #ddd; vertical-align:middle; margin-right:10px }
-</style>
+<?= getCssLink() ?>
 </head>
 <body>
 

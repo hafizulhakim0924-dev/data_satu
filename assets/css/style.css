@@ -591,6 +591,37 @@ table tr:last-child td {
     padding: 12px;
 }
 
+/* Komponen tambahan yang dipakai banyak halaman */
+.big {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--dark-text);
+}
+
+.badge-admin { background: #e74c3c; color: #fff; }
+.badge-manager { background: #f39c12; color: #fff; }
+.badge-staff { background: #3498db; color: #fff; }
+.badge-volunteer { background: #27ae60; color: #fff; }
+
+.badge-individu { background: #3498db; color: #fff; }
+.badge-perusahaan { background: #f39c12; color: #fff; }
+.badge-yayasan { background: #9b59b6; color: #fff; }
+.badge-lembaga { background: #27ae60; color: #fff; }
+
+.badge-pending { background: #f39c12; color: #fff; }
+.badge-verified { background: #27ae60; color: #fff; }
+.badge-rejected { background: #e74c3c; color: #fff; }
+
+.color-preview {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: inline-block;
+    border: 1px solid var(--border-color);
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
 /* ============================================
    DETAIL SECTIONS
    ============================================ */
