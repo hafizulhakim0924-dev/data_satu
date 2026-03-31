@@ -391,20 +391,30 @@ try {
         $geoFlags = program_csr_geo_columns($pdo);
         $program_has_geo_cols = !empty($geoFlags['lat']) && !empty($geoFlags['lng']);
 
-        // Data peta: pin per program (punya lat/lng) + agregasi kota untuk program tanpa koordinat
+        // Data peta: adaptif mengikuti kolom yang tersedia di DB
         try {
             $geo = program_csr_geo_columns($pdo);
+            $cols = array_flip(program_csr_columns($pdo));
+            $hasKota = isset($cols['kota']);
+            $hasProv = isset($cols['provinsi']);
+            $hasPenerima = isset($cols['jumlah_penerima_manfaat']);
+            $hasDeskripsi = isset($cols['deskripsi']);
             $map_pins = [];
 
+            // 1) Pin point per program yang punya lat/lng valid
             if ($geo['lat'] && $geo['lng']) {
+                $selKota = $hasKota ? "TRIM(COALESCE(p.kota, ''))" : "''";
+                $selProv = $hasProv ? "TRIM(COALESCE(p.provinsi, ''))" : "''";
+                $selPenerima = $hasPenerima ? "COALESCE(p.jumlah_penerima_manfaat, 0)" : "0";
+                $selDesk = $hasDeskripsi ? "p.deskripsi" : "NULL";
                 $stmtPt = $pdo->query("
                     SELECT 
                         p.id AS program_id,
                         p.nama_program,
-                        p.deskripsi,
-                        TRIM(COALESCE(p.kota, '')) AS kota,
-                        TRIM(COALESCE(p.provinsi, '')) AS provinsi,
-                        COALESCE(p.jumlah_penerima_manfaat, 0) AS total_penerima,
+                        $selDesk AS deskripsi,
+                        $selKota AS kota,
+                        $selProv AS provinsi,
+                        $selPenerima AS total_penerima,
                         p.latitude AS lat,
                         p.longitude AS lng
                     FROM program_csr p
@@ -417,8 +427,8 @@ try {
                         'program_id' => (int)$row['program_id'],
                         'nama_program' => $row['nama_program'],
                         'deskripsi' => (string)($row['deskripsi'] ?? ''),
-                        'kota' => $row['kota'],
-                        'provinsi' => $row['provinsi'],
+                        'kota' => $row['kota'] ?? '',
+                        'provinsi' => $row['provinsi'] ?? '',
                         'jumlah_program' => 1,
                         'total_penerima' => (int)$row['total_penerima'],
                         'contoh_nama' => $row['nama_program'],
@@ -428,60 +438,67 @@ try {
                 }
             }
 
-            $sqlMap = "
-                SELECT 
-                    TRIM(COALESCE(kota, '')) AS kota,
-                    TRIM(COALESCE(provinsi, '')) AS provinsi,
-                    COUNT(*) AS jumlah_program,
-                    SUM(COALESCE(jumlah_penerima_manfaat, 0)) AS total_penerima,
-                    SUBSTRING(
-                        GROUP_CONCAT(DISTINCT nama_program ORDER BY nama_program SEPARATOR ' • '),
-                        1,
-                        400
-                    ) AS contoh_nama
-            ";
-            if ($geo['lat'] && $geo['lng']) {
-                $sqlMap .= ",
-                    AVG(NULLIF(latitude, 0)) AS lat,
-                    AVG(NULLIF(longitude, 0)) AS lng
+            // 2) Pin agregasi per kota hanya jika kolom kota tersedia
+            if ($hasKota) {
+                $selProvAgg = $hasProv ? "TRIM(COALESCE(provinsi, ''))" : "''";
+                $sumPenerima = $hasPenerima ? "SUM(COALESCE(jumlah_penerima_manfaat, 0))" : "0";
+                $groupProv = $hasProv ? "TRIM(COALESCE(provinsi, ''))" : "''";
+
+                $sqlMap = "
+                    SELECT 
+                        TRIM(COALESCE(kota, '')) AS kota,
+                        $selProvAgg AS provinsi,
+                        COUNT(*) AS jumlah_program,
+                        $sumPenerima AS total_penerima,
+                        SUBSTRING(
+                            GROUP_CONCAT(DISTINCT nama_program ORDER BY nama_program SEPARATOR ' • '),
+                            1,
+                            400
+                        ) AS contoh_nama
                 ";
-            }
-            $sqlMap .= "
-                FROM program_csr
-                WHERE kota IS NOT NULL AND TRIM(kota) != ''
-            ";
-            if ($geo['lat'] && $geo['lng']) {
-                $sqlMap .= "
-                    AND (
-                        latitude IS NULL OR longitude IS NULL
-                        OR ABS(latitude) < 0.0000001 OR ABS(longitude) < 0.0000001
-                    )
-                ";
-            }
-            $sqlMap .= "
-                GROUP BY TRIM(kota), TRIM(COALESCE(provinsi, ''))
-                ORDER BY jumlah_program DESC, kota ASC
-            ";
-            $agg = $pdo->query($sqlMap)->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($agg as $row) {
-                $lat = isset($row['lat']) ? (float)$row['lat'] : null;
-                $lng = isset($row['lng']) ? (float)$row['lng'] : null;
-                if ($lat === null || $lng === null || abs($lat) < 0.0001 || abs($lng) < 0.0001) {
-                    list($lat, $lng) = program_map_resolve_coords($row['kota'], $row['provinsi']);
+                if ($geo['lat'] && $geo['lng']) {
+                    $sqlMap .= ",
+                        AVG(NULLIF(latitude, 0)) AS lat,
+                        AVG(NULLIF(longitude, 0)) AS lng
+                    ";
                 }
-                $map_pins[] = [
-                    'pin_kind' => 'cluster',
-                    'program_id' => null,
-                    'nama_program' => null,
-                    'deskripsi' => '',
-                    'kota' => $row['kota'],
-                    'provinsi' => $row['provinsi'],
-                    'jumlah_program' => (int)$row['jumlah_program'],
-                    'total_penerima' => (int)$row['total_penerima'],
-                    'contoh_nama' => $row['contoh_nama'] ?? '',
-                    'lat' => round($lat, 6),
-                    'lng' => round($lng, 6),
-                ];
+                $sqlMap .= "
+                    FROM program_csr
+                    WHERE kota IS NOT NULL AND TRIM(kota) != ''
+                ";
+                if ($geo['lat'] && $geo['lng']) {
+                    $sqlMap .= "
+                        AND (
+                            latitude IS NULL OR longitude IS NULL
+                            OR ABS(latitude) < 0.0000001 OR ABS(longitude) < 0.0000001
+                        )
+                    ";
+                }
+                $sqlMap .= "
+                    GROUP BY TRIM(kota), $groupProv
+                    ORDER BY jumlah_program DESC, kota ASC
+                ";
+                $agg = $pdo->query($sqlMap)->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($agg as $row) {
+                    $lat = isset($row['lat']) ? (float)$row['lat'] : null;
+                    $lng = isset($row['lng']) ? (float)$row['lng'] : null;
+                    if ($lat === null || $lng === null || abs($lat) < 0.0001 || abs($lng) < 0.0001) {
+                        list($lat, $lng) = program_map_resolve_coords($row['kota'] ?? '', $row['provinsi'] ?? '');
+                    }
+                    $map_pins[] = [
+                        'pin_kind' => 'cluster',
+                        'program_id' => null,
+                        'nama_program' => null,
+                        'deskripsi' => '',
+                        'kota' => $row['kota'] ?? '',
+                        'provinsi' => $row['provinsi'] ?? '',
+                        'jumlah_program' => (int)$row['jumlah_program'],
+                        'total_penerima' => (int)$row['total_penerima'],
+                        'contoh_nama' => $row['contoh_nama'] ?? '',
+                        'lat' => round($lat, 6),
+                        'lng' => round($lng, 6),
+                    ];
+                }
             }
         } catch (PDOException $e) {
             $map_pins = [];
