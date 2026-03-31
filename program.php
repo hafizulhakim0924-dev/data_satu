@@ -1047,7 +1047,7 @@ function closeMapProgramModal() {
     /** Pin oranye (SVG) + badge jumlah program */
     function makeProgramPinIcon(jumlahProgram) {
         var n = Math.max(1, parseInt(jumlahProgram, 10) || 1);
-        var badge = n > 1 ? ('<span class="rpn-map-pin-badge">' + (n > 99 ? '99+' : n) + '</span>') : '';
+        var badge = '<span class="rpn-map-pin-badge">' + (n > 99 ? '99+' : n) + '</span>';
         var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 48" width="34" height="46" aria-hidden="true">'
             + '<path fill="#ff7a00" stroke="#c55a00" stroke-width="1.2" d="M18 2C10.3 2 4 8.3 4 16c0 11.5 11.2 24.5 13.3 27 0.4 0.5 1 0.5 1.4 0C20.8 40.5 32 27.5 32 16 32 8.3 25.7 2 18 2z"/>'
             + '<circle fill="#fff" cx="18" cy="16" r="5.5"/>'
@@ -1120,21 +1120,86 @@ function closeMapProgramModal() {
             map.on('click', function(e) {
                 openMapAddDraft(e.latlng);
             });
+            // Dipakai oleh tombol di popup pin.
+            window.rpnOpenMapAddAt = function(lat, lng) {
+                var lt = parseFloat(lat), ln = parseFloat(lng);
+                if (isNaN(lt) || isNaN(ln)) return;
+                openMapAddDraft({ lat: lt, lng: ln });
+            };
         }
 
         addTiles(map);
         if (pins && pins.length) {
             var bounds = [];
+            var pointGroups = {};
+            var normalizedPins = [];
+
+            // Gabungkan pin "point" yang berada di koordinat sama.
             pins.forEach(function(p) {
                 var lat = parseFloat(p.lat);
                 var lng = parseFloat(p.lng);
                 if (isNaN(lat) || isNaN(lng)) return;
                 var kind = p.pin_kind || 'cluster';
+                if (kind === 'point') {
+                    var key = lat.toFixed(6) + '|' + lng.toFixed(6);
+                    if (!pointGroups[key]) {
+                        pointGroups[key] = {
+                            pin_kind: 'point_group',
+                            lat: lat,
+                            lng: lng,
+                            kota: p.kota || '',
+                            provinsi: p.provinsi || '',
+                            total_penerima: 0,
+                            jumlah_program: 0,
+                            programs: []
+                        };
+                    }
+                    pointGroups[key].jumlah_program += 1;
+                    pointGroups[key].total_penerima += parseInt(p.total_penerima || 0, 10) || 0;
+                    pointGroups[key].programs.push({
+                        id: p.program_id || null,
+                        nama: p.nama_program || 'Program',
+                        deskripsi: p.deskripsi || ''
+                    });
+                } else {
+                    normalizedPins.push(p);
+                }
+            });
+
+            Object.keys(pointGroups).forEach(function(k) {
+                normalizedPins.push(pointGroups[k]);
+            });
+
+            normalizedPins.forEach(function(p) {
+                var lat = parseFloat(p.lat), lng = parseFloat(p.lng);
+                if (isNaN(lat) || isNaN(lng)) return;
+                var kind = p.pin_kind || 'cluster';
+                var badgeCount = parseInt(p.jumlah_program || 1, 10) || 1;
                 var mk = L.marker([lat, lng], {
-                    icon: makeProgramPinIcon(p.jumlah_program)
+                    icon: makeProgramPinIcon(badgeCount)
                 }).addTo(map);
                 var html = '<div style="min-width:210px">';
-                if (kind === 'point' && p.nama_program) {
+                if (kind === 'point_group' && p.programs && p.programs.length) {
+                    html += '<strong>' + esc((p.kota || 'Titik Program')) + '</strong>';
+                    if (p.provinsi) {
+                        html += '<br><small style="color:#666">' + esc(p.provinsi) + '</small>';
+                    }
+                    html += '<hr style="margin:8px 0;border:none;border-top:1px solid #eee">';
+                    html += '<b>' + p.programs.length + '</b> program di titik ini';
+                    if (p.total_penerima) {
+                        html += '<br><small>Penerima manfaat: <b>' + (p.total_penerima || 0).toLocaleString('id-ID') + '</b></small>';
+                    }
+                    html += '<div style="margin-top:6px;max-height:120px;overflow:auto">';
+                    p.programs.forEach(function(pr, idx) {
+                        html += '<div style="font-size:12px;margin-bottom:4px">' + (idx + 1) + '. ' + esc(pr.nama) + '</div>';
+                    });
+                    html += '</div>';
+                    if (mapCanAddFromMap) {
+                        html += '<p style="margin-top:10px;margin-bottom:0">' +
+                            '<button type="button" class="btn btn-success btn-xs" onclick="window.rpnOpenMapAddAt(' + lat + ',' + lng + ')">+ Tambah program di titik ini</button>' +
+                            '</p>';
+                    }
+                } else if (kind === 'point' && p.nama_program) {
                     html += '<strong>' + esc(p.nama_program) + '</strong>';
                     if (p.kota || p.provinsi) {
                         html += '<br><small style="color:#666">' + esc([p.kota, p.provinsi].filter(Boolean).join(', ')) + '</small>';
