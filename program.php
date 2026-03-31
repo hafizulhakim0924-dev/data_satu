@@ -30,6 +30,117 @@ function program_csr_geo_columns(PDO $pdo) {
 }
 
 /**
+ * Nama kolom program_csr (cache) — skema bisa minimal (tanpa kecamatan/kota/dll.)
+ */
+function program_csr_columns(PDO $pdo) {
+    static $cols = null;
+    if ($cols !== null) {
+        return $cols;
+    }
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM program_csr")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        $cols = [];
+    }
+    return $cols;
+}
+
+/**
+ * INSERT: hanya kolom yang ada di tabel; lewati null/'' agar pakai DEFAULT DB
+ */
+function program_csr_insert_dynamic(PDO $pdo, array $row) {
+    $allowed = array_flip(program_csr_columns($pdo));
+    if (!isset($allowed['nama_program'])) {
+        throw new PDOException('Tabel program_csr tidak memiliki kolom nama_program.');
+    }
+    $nama = $row['nama_program'] ?? '';
+    if ($nama === '' || $nama === null) {
+        throw new PDOException('Nama program wajib diisi.');
+    }
+    $cols = [];
+    $ph = [];
+    $params = [];
+    foreach ($row as $key => $val) {
+        if ($key === 'id' || !isset($allowed[$key])) {
+            continue;
+        }
+        if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $key)) {
+            continue;
+        }
+        if ($val === null || $val === '') {
+            continue;
+        }
+        $cols[] = '`' . $key . '`';
+        $ph[] = '?';
+        $params[] = $val;
+    }
+    if (!in_array('`nama_program`', $cols, true)) {
+        $cols[] = '`nama_program`';
+        $ph[] = '?';
+        $params[] = $nama;
+    }
+    $sql = 'INSERT INTO program_csr (' . implode(',', $cols) . ') VALUES (' . implode(',', $ph) . ')';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+}
+
+/**
+ * UPDATE: set hanya kolom yang ada; nilai boleh null
+ */
+function program_csr_update_dynamic(PDO $pdo, $id, array $row) {
+    $allowed = array_flip(program_csr_columns($pdo));
+    $sets = [];
+    $params = [];
+    foreach ($row as $key => $val) {
+        if ($key === 'id' || !isset($allowed[$key])) {
+            continue;
+        }
+        if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $key)) {
+            continue;
+        }
+        $sets[] = '`' . $key . '`=?';
+        $params[] = $val;
+    }
+    if (empty($sets)) {
+        throw new PDOException('Tidak ada kolom untuk diupdate.');
+    }
+    $params[] = $id;
+    $sql = 'UPDATE program_csr SET ' . implode(',', $sets) . ' WHERE id=?';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+}
+
+/** Baris form tambah/edit → array untuk insert/update dinamis */
+function program_csr_row_from_post(PDO $pdo, array $post, $includeLatLng) {
+    $latIn = isset($post['latitude']) && $post['latitude'] !== '' ? (float)$post['latitude'] : null;
+    $lngIn = isset($post['longitude']) && $post['longitude'] !== '' ? (float)$post['longitude'] : null;
+    $row = [
+        'nama_program' => $post['nama_program'] ?? '',
+        'kategori' => ($post['kategori'] ?? '') !== '' ? $post['kategori'] : null,
+        'deskripsi' => ($post['deskripsi'] ?? '') !== '' ? $post['deskripsi'] : null,
+        'lokasi' => ($post['lokasi'] ?? '') !== '' ? $post['lokasi'] : null,
+        'kecamatan' => ($post['kecamatan'] ?? '') !== '' ? $post['kecamatan'] : null,
+        'kota' => ($post['kota'] ?? '') !== '' ? $post['kota'] : null,
+        'provinsi' => ($post['provinsi'] ?? '') !== '' ? $post['provinsi'] : null,
+        'tanggal_mulai' => !empty($post['tanggal_mulai']) ? $post['tanggal_mulai'] : null,
+        'tanggal_selesai' => !empty($post['tanggal_selesai']) ? $post['tanggal_selesai'] : null,
+        'budget' => isset($post['budget']) ? $post['budget'] : 0,
+        'status' => $post['status'] ?? 'planning',
+        'pic' => !empty($post['pic']) ? $post['pic'] : null,
+        'jenis_bantuan' => ($post['jenis_bantuan'] ?? '') !== '' ? $post['jenis_bantuan'] : null,
+        'jumlah_bantuan' => $post['jumlah_bantuan'] ?? 0,
+        'satuan' => ($post['satuan'] ?? '') !== '' ? $post['satuan'] : null,
+        'jumlah_penerima_manfaat' => $post['jumlah_penerima_manfaat'] ?? 0,
+        'jumlah_relawan_terlibat' => $post['jumlah_relawan_terlibat'] ?? 0,
+    ];
+    if ($includeLatLng) {
+        $row['latitude'] = $latIn;
+        $row['longitude'] = $lngIn;
+    }
+    return $row;
+}
+
+/**
  * Koordinat perkiraan kota di Indonesia (untuk pin jika lat/lng DB kosong)
  */
 function program_map_resolve_coords($kota, $provinsi) {
@@ -124,28 +235,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $kota = trim((string)($_POST['kota'] ?? ''));
             $prov = trim((string)($_POST['provinsi'] ?? ''));
             $today = date('Y-m-d');
-            $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat, latitude, longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([
-                $nama,
-                '',
-                $desk,
-                '',
-                '',
-                $kota,
-                $prov,
-                $today,
-                null,
-                0,
-                'planning',
-                null,
-                '',
-                0,
-                '',
-                0,
-                0,
-                $latIn,
-                $lngIn,
-            ]);
+            $lokasiLine = trim(implode(', ', array_filter([$kota, $prov])));
+            $insertRow = [
+                'nama_program' => $nama,
+                'deskripsi' => $desk !== '' ? $desk : null,
+                'lokasi' => $lokasiLine !== '' ? $lokasiLine : null,
+                'kota' => $kota !== '' ? $kota : null,
+                'provinsi' => $prov !== '' ? $prov : null,
+                'tanggal_mulai' => $today,
+                'budget' => 0,
+                'status' => 'planning',
+                'jumlah_bantuan' => 0,
+                'jumlah_penerima_manfaat' => 0,
+                'jumlah_relawan_terlibat' => 0,
+                'latitude' => $latIn,
+                'longitude' => $lngIn,
+            ];
+            $haveCols = array_flip(program_csr_columns($pdo));
+            if (isset($haveCols['realisasi_budget'])) {
+                $insertRow['realisasi_budget'] = 0;
+            }
+            if (isset($haveCols['progress'])) {
+                $insertRow['progress'] = 0;
+            }
+            program_csr_insert_dynamic($pdo, $insertRow);
             @ob_end_clean();
             header('Location: program.php?tab=peta&msg=' . rawurlencode('Program ditambahkan dari peta'));
             exit;
@@ -159,54 +272,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($action == 'add_program') {
         try {
             $geo = program_csr_geo_columns($pdo);
-            $latIn = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
-            $lngIn = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
-
-            if ($geo['lat'] && $geo['lng']) {
-                $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat, latitude, longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([
-                    $_POST['nama_program'] ?? '',
-                    $_POST['kategori'] ?? '',
-                    $_POST['deskripsi'] ?? '',
-                    $_POST['lokasi'] ?? '',
-                    $_POST['kecamatan'] ?? '',
-                    $_POST['kota'] ?? '',
-                    $_POST['provinsi'] ?? '',
-                    $_POST['tanggal_mulai'] ?: null,
-                    $_POST['tanggal_selesai'] ?: null,
-                    $_POST['budget'] ?? 0,
-                    $_POST['status'] ?? 'planning',
-                    $_POST['pic'] ?: null,
-                    $_POST['jenis_bantuan'] ?? '',
-                    $_POST['jumlah_bantuan'] ?? 0,
-                    $_POST['satuan'] ?? '',
-                    $_POST['jumlah_penerima_manfaat'] ?? 0,
-                    $_POST['jumlah_relawan_terlibat'] ?? 0,
-                    $latIn,
-                    $lngIn
-                ]);
-            } else {
-                $stmt = $pdo->prepare("INSERT INTO program_csr (nama_program, kategori, deskripsi, lokasi, kecamatan, kota, provinsi, tanggal_mulai, tanggal_selesai, budget, status, pic, jenis_bantuan, jumlah_bantuan, satuan, jumlah_penerima_manfaat, jumlah_relawan_terlibat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([
-                    $_POST['nama_program'] ?? '',
-                    $_POST['kategori'] ?? '',
-                    $_POST['deskripsi'] ?? '',
-                    $_POST['lokasi'] ?? '',
-                    $_POST['kecamatan'] ?? '',
-                    $_POST['kota'] ?? '',
-                    $_POST['provinsi'] ?? '',
-                    $_POST['tanggal_mulai'] ?: null,
-                    $_POST['tanggal_selesai'] ?: null,
-                    $_POST['budget'] ?? 0,
-                    $_POST['status'] ?? 'planning',
-                    $_POST['pic'] ?: null,
-                    $_POST['jenis_bantuan'] ?? '',
-                    $_POST['jumlah_bantuan'] ?? 0,
-                    $_POST['satuan'] ?? '',
-                    $_POST['jumlah_penerima_manfaat'] ?? 0,
-                    $_POST['jumlah_relawan_terlibat'] ?? 0
-                ]);
-            }
+            $includeGeo = $geo['lat'] && $geo['lng'];
+            $row = program_csr_row_from_post($pdo, $_POST, $includeGeo);
+            program_csr_insert_dynamic($pdo, $row);
             @ob_end_clean();
             header('Location: program.php?msg=' . rawurlencode('Program berhasil ditambahkan'));
             exit;
@@ -217,60 +285,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     if ($action == 'update_program') {
         try {
-            $id = $_POST['id'] ?? 0;
-            $geo = program_csr_geo_columns($pdo);
-            $latIn = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
-            $lngIn = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
-
-            if ($geo['lat'] && $geo['lng']) {
-                $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, kecamatan=?, kota=?, provinsi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=?, jenis_bantuan=?, jumlah_bantuan=?, satuan=?, jumlah_penerima_manfaat=?, jumlah_relawan_terlibat=?, latitude=?, longitude=? WHERE id=?");
-                $stmt->execute([
-                    $_POST['nama_program'] ?? '',
-                    $_POST['kategori'] ?? '',
-                    $_POST['deskripsi'] ?? '',
-                    $_POST['lokasi'] ?? '',
-                    $_POST['kecamatan'] ?? '',
-                    $_POST['kota'] ?? '',
-                    $_POST['provinsi'] ?? '',
-                    $_POST['tanggal_mulai'] ?: null,
-                    $_POST['tanggal_selesai'] ?: null,
-                    $_POST['budget'] ?? 0,
-                    $_POST['status'] ?? 'planning',
-                    $_POST['pic'] ?: null,
-                    $_POST['jenis_bantuan'] ?? '',
-                    $_POST['jumlah_bantuan'] ?? 0,
-                    $_POST['satuan'] ?? '',
-                    $_POST['jumlah_penerima_manfaat'] ?? 0,
-                    $_POST['jumlah_relawan_terlibat'] ?? 0,
-                    $latIn,
-                    $lngIn,
-                    $id
-                ]);
-            } else {
-                $stmt = $pdo->prepare("UPDATE program_csr SET nama_program=?, kategori=?, deskripsi=?, lokasi=?, kecamatan=?, kota=?, provinsi=?, tanggal_mulai=?, tanggal_selesai=?, budget=?, status=?, pic=?, jenis_bantuan=?, jumlah_bantuan=?, satuan=?, jumlah_penerima_manfaat=?, jumlah_relawan_terlibat=? WHERE id=?");
-                $stmt->execute([
-                    $_POST['nama_program'] ?? '',
-                    $_POST['kategori'] ?? '',
-                    $_POST['deskripsi'] ?? '',
-                    $_POST['lokasi'] ?? '',
-                    $_POST['kecamatan'] ?? '',
-                    $_POST['kota'] ?? '',
-                    $_POST['provinsi'] ?? '',
-                    $_POST['tanggal_mulai'] ?: null,
-                    $_POST['tanggal_selesai'] ?: null,
-                    $_POST['budget'] ?? 0,
-                    $_POST['status'] ?? 'planning',
-                    $_POST['pic'] ?: null,
-                    $_POST['jenis_bantuan'] ?? '',
-                    $_POST['jumlah_bantuan'] ?? 0,
-                    $_POST['satuan'] ?? '',
-                    $_POST['jumlah_penerima_manfaat'] ?? 0,
-                    $_POST['jumlah_relawan_terlibat'] ?? 0,
-                    $id
-                ]);
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id < 1) {
+                throw new PDOException('ID program tidak valid.');
             }
+            $geo = program_csr_geo_columns($pdo);
+            $includeGeo = $geo['lat'] && $geo['lng'];
+            $row = program_csr_row_from_post($pdo, $_POST, $includeGeo);
+            program_csr_update_dynamic($pdo, $id, $row);
             @ob_end_clean();
-            header("Location: program.php?msg=Program berhasil diupdate");
+            header('Location: program.php?msg=' . rawurlencode('Program berhasil diupdate'));
             exit;
         } catch(PDOException $e) {
             $error_msg = "Error: " . $e->getMessage();
