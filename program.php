@@ -1169,6 +1169,7 @@ function closeMapProgramModal() {
 <?php endif; ?>
 </script>
 
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>
 <?php

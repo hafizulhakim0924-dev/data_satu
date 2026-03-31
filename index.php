@@ -450,5 +450,6 @@ window.addEventListener('click', function(ev) {
 </script>
 
 </div>
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>

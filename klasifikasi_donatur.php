@@ -231,6 +231,7 @@ window.onclick = function(event) {
 }
 </script>
 
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>
 

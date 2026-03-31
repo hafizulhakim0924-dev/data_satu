@@ -889,3 +889,108 @@ table tr:last-child td {
     animation: fadeIn 0.5s;
 }
 
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================
+   PROFESSIONAL POLISH + SCHEDULE POPUP
+   ============================================ */
+.card,
+.stat-card,
+table,
+.modal-content {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.card-header h1,
+.card-header h2,
+.card-header h3 {
+    letter-spacing: 0.2px;
+}
+
+table thead th {
+    background: #fff7ef;
+    color: #8f4a00;
+    border-bottom: 1px solid #ffd8b2;
+}
+
+table tbody tr:hover {
+    background: #fffaf5;
+}
+
+.btn-xs {
+    font-size: 11px;
+    padding: 3px 8px;
+}
+
+.fab-schedule {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 1200;
+    border: 0;
+    border-radius: 999px;
+    padding: 11px 15px;
+    background: linear-gradient(135deg, #ff8a00, #ff6a00);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(255, 122, 0, 0.35);
+}
+
+.fab-schedule:hover {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
+}
+
+.schedule-modal {
+    max-width: 560px;
+}
+
+.schedule-subtitle {
+    margin-top: -6px;
+    color: var(--light-text);
+    font-size: 13px;
+}
+
+.schedule-list {
+    margin-top: 14px;
+    max-height: 280px;
+    overflow: auto;
+    border-top: 1px solid #f1e3d3;
+    padding-top: 10px;
+}
+
+.schedule-item {
+    border: 1px solid #f3e5d8;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: #fffdfa;
+}
+
+.schedule-item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.schedule-item-meta {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #7a7a7a;
+}
+
+.schedule-item-note {
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+.schedule-empty {
+    color: #8d8d8d;
+    font-size: 13px;
+}
+

@@ -64,6 +64,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
         <button type="submit" class="btn">Login</button>
     </form>
 </div>
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>
 

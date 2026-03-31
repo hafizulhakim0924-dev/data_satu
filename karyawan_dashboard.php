@@ -141,6 +141,7 @@ table th { background:#34495e; color:#fff; font-weight:600 }
     </div>
 </div>
 
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>
 

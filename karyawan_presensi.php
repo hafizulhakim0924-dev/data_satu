@@ -302,6 +302,7 @@ window.addEventListener('beforeunload', function() {
 });
 </script>
 
+<?= getGlobalUiEnhancer() ?>
 </body>
 </html>
 
