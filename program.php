@@ -125,6 +125,8 @@ function program_csr_row_from_post(PDO $pdo, array $post, $includeLatLng) {
         'tanggal_mulai' => !empty($post['tanggal_mulai']) ? $post['tanggal_mulai'] : null,
         'tanggal_selesai' => !empty($post['tanggal_selesai']) ? $post['tanggal_selesai'] : null,
         'budget' => isset($post['budget']) ? $post['budget'] : 0,
+        'realisasi_budget' => isset($post['realisasi_budget']) ? $post['realisasi_budget'] : 0,
+        'progress' => isset($post['progress']) ? max(0, min(100, (int)$post['progress'])) : 0,
         'status' => $post['status'] ?? 'planning',
         'pic' => !empty($post['pic']) ? $post['pic'] : null,
         'jenis_bantuan' => ($post['jenis_bantuan'] ?? '') !== '' ? $post['jenis_bantuan'] : null,
@@ -697,6 +699,12 @@ if ($view_id) {
                     <span><?= $view_program['tanggal_selesai'] ? date('d/m/Y', strtotime($view_program['tanggal_selesai'])) : '-' ?></span>
                 </div>
             </div>
+            <div style="margin-top:10px">
+                <label style="display:block; font-size:12px; color:var(--light-text); margin-bottom:6px;">Bar Progress</label>
+                <div style="height:10px; border-radius:999px; background:#f3f3f3; overflow:hidden;">
+                    <div style="height:100%; width:<?= max(0, min(100, (int)($view_program['progress'] ?? 0))) ?>%; background:linear-gradient(90deg,#ff9a2a,#ff7a00);"></div>
+                </div>
+            </div>
         </div>
         
         <div style="margin-top:20px">
@@ -746,7 +754,7 @@ if ($view_id) {
             <?php foreach($program_list as $idx => $p): ?>
             <tr>
                 <td><?= $idx + 1 ?></td>
-                <td><strong><?= htmlspecialchars($p['nama_program']) ?></strong></td>
+                <td><a href="?view=<?= $p['id'] ?>" style="font-weight:700; color:var(--primary-color); text-decoration:none;"><?= htmlspecialchars($p['nama_program']) ?></a></td>
                 <td><?= htmlspecialchars($p['kategori'] ?? '-') ?></td>
                 <td><?= htmlspecialchars($p['lokasi'] ?? '-') ?></td>
                 <td><?= $p['tanggal_mulai'] ? date('d/m/Y', strtotime($p['tanggal_mulai'])) : '-' ?></td>
@@ -886,6 +894,17 @@ if ($view_id) {
             <div class="form-group">
                 <label>Budget</label>
                 <input type="number" name="budget" step="0.01" value="<?= $edit_program['budget'] ?? 0 ?>" min="0">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Realisasi Budget</label>
+                    <input type="number" name="realisasi_budget" step="0.01" value="<?= $edit_program['realisasi_budget'] ?? 0 ?>" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Progress (%)</label>
+                    <input type="number" name="progress" value="<?= (int)($edit_program['progress'] ?? 0) ?>" min="0" max="100" placeholder="0 - 100">
+                </div>
             </div>
             
             <div class="form-group">
@@ -1191,7 +1210,13 @@ function closeMapProgramModal() {
                     }
                     html += '<div style="margin-top:6px;max-height:120px;overflow:auto">';
                     p.programs.forEach(function(pr, idx) {
-                        html += '<div style="font-size:12px;margin-bottom:4px">' + (idx + 1) + '. ' + esc(pr.nama) + '</div>';
+                        html += '<div style="font-size:12px;margin-bottom:4px">' + (idx + 1) + '. ';
+                        if (pr.id) {
+                            html += '<a href="program.php?view=' + encodeURIComponent(pr.id) + '" style="color:#d45f00;text-decoration:none;">' + esc(pr.nama) + '</a>';
+                        } else {
+                            html += esc(pr.nama);
+                        }
+                        html += '</div>';
                     });
                     html += '</div>';
                     if (mapCanAddFromMap) {
